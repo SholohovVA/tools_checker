@@ -1,42 +1,65 @@
 import cv2
 import numpy as np
 from PIL import Image
-import io
 from pathlib import Path
 from .model import model
+
+# Словарь переименования классов
+# CLASS_MAPPING = {
+#     "minus_screwdriver": "Отвертка «-»",
+#     "plus_screwdriver": "Отвертка «+»",
+#     "offset_phillips_screwdriver": "Отвертка на смещенный крест",
+#     "brace": "Коловорот",
+#     "locking_pliers": "Пассатижи контровочные",
+#     "combination_pliers": "Пассатижи",
+#     "shernica": "Шэрница",
+#     "adjustable_wrench": "Разводной ключ",
+#     "oil_can_opener": "Открывашка для банок с маслом",
+#     "open_end_wrench": "Ключ рожковый/накидной ¾",
+#     "side_cutting_pliers": "Бокорезы"
+# }
+
+# Словарь переименования классов
+CLASS_MAPPING = {
+    "screwdriver": "Отвертка",
+    "pliers": "Пассатижи",
+    "brace": "Коловорот",
+    "shernica": "Шэрница",
+    "adjustable_wrench": "Разводной ключ",
+    "oil_can_opener": "Открывашка для банок с маслом",
+    "open-end_wrench": "Ключ рожковый/накидной ¾",
+    "side_cutting_pliers": "Бокорезы"
+}
 
 STATIC_DIR = Path("static")
 STATIC_DIR.mkdir(exist_ok=True)
 
 def detect_objects(image: Image.Image):
-    # Конвертируем PIL → OpenCV (RGB → BGR)
     img = np.array(image)
     img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
-    # Инференс через Ultralytics YOLO
     results = model(img)
-
-    # Обрабатываем результаты
     detections = []
-    result = results[0]  # берем первый (и единственный) результат
+    result = results[0]
 
-    # Если есть bounding boxes
     if result.boxes is not None:
         boxes = result.boxes
         for box in boxes:
-            xyxy = box.xyxy[0].cpu().numpy()  # [x1, y1, x2, y2]
+            xyxy = box.xyxy[0].cpu().numpy()
             conf = float(box.conf[0].cpu().numpy())
             cls = int(box.cls[0].cpu().numpy())
-            label = model.names[cls]
+            original_label = model.names[cls]
+            # Применяем маппинг, если есть; иначе оставляем оригинал
+            display_label = CLASS_MAPPING.get(original_label, original_label)
 
             detections.append({
-                "label": label,
+                "original_label": original_label,
+                "label": display_label,
                 "confidence": conf,
                 "bbox": [float(x) for x in xyxy]
             })
 
-    # Рендерим изображение с bounding boxes
-    annotated_img = result.plot()  # возвращает BGR numpy array
+    annotated_img = result.plot()
     annotated_img = cv2.cvtColor(annotated_img, cv2.COLOR_BGR2RGB)
     rendered_pil = Image.fromarray(annotated_img)
 

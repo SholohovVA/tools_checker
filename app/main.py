@@ -69,11 +69,11 @@ async def compare(session_id: str):
     for tool in all_tools:
         taken_count = taken_labels.count(tool)
         returned_count = returned_labels.count(tool)
+        # Итог = сдано − взято
         summary.append({
             "tool": tool,
             "taken": taken_count,
             "returned": returned_count,
-            "missing": taken_count - returned_count
         })
 
     return {

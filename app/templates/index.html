@@ -7,80 +7,101 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         .img-container {
-            height: 400px;
+            height: 350px;
             display: flex;
             align-items: center;
             justify-content: center;
             background: #f8f9fa;
             border: 1px solid #dee2e6;
             border-radius: 8px;
+            overflow: hidden;
         }
         .img-container img {
             max-width: 100%;
             max-height: 100%;
             object-fit: contain;
         }
-        .upload-section {
-            margin-bottom: 2rem;
+        .section-title {
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+        .upload-group {
+            margin-bottom: 1rem;
+        }
+        .result-row {
+            min-height: 400px;
+        }
+
+        /* 🔴🟢 Стили для строк таблицы — с !important для приоритета */
+        .summary-table tbody tr.status-ok {
+            background-color: #e8f5e9 !important;
+            color: #2e7d32 !important;
+            font-weight: 600;
+        }
+        .summary-table tbody tr.status-error {
+            background-color: #ffebee !important;
+            color: #c62828 !important;
+            font-weight: 600;
+        }
+
+        /* Убедимся, что ячейки наследуют цвет */
+        .summary-table tbody tr.status-ok td,
+        .summary-table tbody tr.status-error td {
+            background-color: inherit !important;
+            color: inherit !important;
         }
     </style>
 </head>
 <body class="bg-light">
 <div class="container py-4">
     <!-- Поле ID пользователя -->
-    <div class="row mb-4">
-        <div class="col-md-6 mx-auto">
-            <label for="user_id" class="form-label">ID пользователя (не используется)</label>
+    <div class="row mb-4 justify-content-center">
+        <div class="col-md-4">
+            <label for="user_id" class="form-label">ID пользователя</label>
             <input type="text" id="user_id" class="form-control" placeholder="Введите ID">
         </div>
     </div>
 
     <input type="hidden" id="session_id" value="{{ session_id }}">
 
-    <!-- Взял -->
-    <div class="upload-section">
-        <h4>📸 Взятый инструмент</h4>
-        <div class="row g-3">
-            <div class="col-md-6">
+    <!-- Единая строка: фото взято / фото сдано -->
+    <div class="row result-row g-4 mb-4">
+        <!-- Взято -->
+        <div class="col-md-6">
+            <div class="section-title">📸 Взятый инструмент</div>
+            <div class="upload-group">
                 <input type="file" id="taken_file" class="form-control" accept="image/*">
-                <button class="btn btn-primary mt-2" onclick="processImage('taken')">Рассчитать</button>
             </div>
-            <div class="col-md-6">
-                <div class="img-container">
-                    <div id="taken_preview">Выберите фото</div>
-                </div>
+            <button class="btn btn-primary" onclick="processImage('taken')">Рассчитать</button>
+            <div class="img-container mt-3">
+                <div id="taken_preview" class="text-muted">Выберите фото</div>
             </div>
         </div>
-    </div>
 
-    <!-- Сдал -->
-    <div class="upload-section">
-        <h4>📤 Сданный инструмент</h4>
-        <div class="row g-3">
-            <div class="col-md-6">
+        <!-- Сдано -->
+        <div class="col-md-6">
+            <div class="section-title">📤 Сданный инструмент</div>
+            <div class="upload-group">
                 <input type="file" id="returned_file" class="form-control" accept="image/*">
-                <button class="btn btn-success mt-2" onclick="processImage('returned')">Рассчитать</button>
             </div>
-            <div class="col-md-6">
-                <div class="img-container">
-                    <div id="returned_preview">Выберите фото</div>
-                </div>
+            <button class="btn btn-success" onclick="processImage('returned')">Рассчитать</button>
+            <div class="img-container mt-3">
+                <div id="returned_preview" class="text-muted">Выберите фото</div>
             </div>
         </div>
     </div>
 
     <!-- Сравнение -->
-    <div class="text-center">
+    <div class="text-center mb-4">
         <button class="btn btn-info" onclick="compare()">📊 Сравнить</button>
     </div>
 
-    <div id="comparison_result" class="mt-4"></div>
+    <div id="comparison_result"></div>
 </div>
 
 <script>
     const sessionId = document.getElementById('session_id').value;
 
-    // Предпросмотр оригинала при выборе файла
     document.getElementById('taken_file').addEventListener('change', function(e) {
         previewImage(e, 'taken_preview');
     });
@@ -106,7 +127,6 @@
         const formData = new FormData();
         formData.append('file', file);
 
-        // Отправляем на детекцию
         const res = await fetch(`/detect/${kind}/${sessionId}`, {
             method: 'POST',
             body: formData
@@ -125,23 +145,28 @@
 
         if (data.error) { alert(data.error); return; }
 
-        let table = `<h4 class="mt-4">Сводная таблица</h4>
+        let table = `<h4 class="mb-3">Сводная таблица</h4>
         <div class="table-responsive">
-        <table class="table table-bordered table-striped">
-            <thead><tr>
-                <th>Инструмент</th>
-                <th>Взято</th>
-                <th>Сдано</th>
-                <th>Недостаёт</th>
-            </tr></thead><tbody>`;
+        <table class="table table-bordered summary-table">
+            <thead class="table-light">
+                <tr>
+                    <th>Инструмент</th>
+                    <th>Взято</th>
+                    <th>Сдано</th>
+                    <th>Итог</th>
+                </tr>
+            </thead>
+            <tbody>`;
 
         data.summary.forEach(row => {
-            const missing = row.missing > 0 ? `<span class="text-danger">${row.missing}</span>` : row.missing;
-            table += `<tr>
+            const diff = row.returned - row.taken;
+            const rowClass = (diff === 0) ? 'status-ok' : 'status-error';
+
+            table += `<tr class="${rowClass}">
                 <td>${row.tool}</td>
                 <td>${row.taken}</td>
                 <td>${row.returned}</td>
-                <td>${missing}</td>
+                <td>${diff}</td>
             </tr>`;
         });
 
