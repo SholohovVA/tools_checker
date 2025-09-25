@@ -1,0 +1,4 @@
+.idea
+venv
+best.pt
+app/__pycache__

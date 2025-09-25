@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Детекция инструментов</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .img-container {
+            height: 400px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+        }
+        .img-container img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+        .upload-section {
+            margin-bottom: 2rem;
+        }
+    </style>
+</head>
+<body class="bg-light">
+<div class="container py-4">
+    <!-- Поле ID пользователя -->
+    <div class="row mb-4">
+        <div class="col-md-6 mx-auto">
+            <label for="user_id" class="form-label">ID пользователя (не используется)</label>
+            <input type="text" id="user_id" class="form-control" placeholder="Введите ID">
+        </div>
+    </div>
+
+    <input type="hidden" id="session_id" value="{{ session_id }}">
+
+    <!-- Взял -->
+    <div class="upload-section">
+        <h4>📸 Взятый инструмент</h4>
+        <div class="row g-3">
+            <div class="col-md-6">
+                <input type="file" id="taken_file" class="form-control" accept="image/*">
+                <button class="btn btn-primary mt-2" onclick="processImage('taken')">Рассчитать</button>
+            </div>
+            <div class="col-md-6">
+                <div class="img-container">
+                    <div id="taken_preview">Выберите фото</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Сдал -->
+    <div class="upload-section">
+        <h4>📤 Сданный инструмент</h4>
+        <div class="row g-3">
+            <div class="col-md-6">
+                <input type="file" id="returned_file" class="form-control" accept="image/*">
+                <button class="btn btn-success mt-2" onclick="processImage('returned')">Рассчитать</button>
+            </div>
+            <div class="col-md-6">
+                <div class="img-container">
+                    <div id="returned_preview">Выберите фото</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Сравнение -->
+    <div class="text-center">
+        <button class="btn btn-info" onclick="compare()">📊 Сравнить</button>
+    </div>
+
+    <div id="comparison_result" class="mt-4"></div>
+</div>
+
+<script>
+    const sessionId = document.getElementById('session_id').value;
+
+    // Предпросмотр оригинала при выборе файла
+    document.getElementById('taken_file').addEventListener('change', function(e) {
+        previewImage(e, 'taken_preview');
+    });
+    document.getElementById('returned_file').addEventListener('change', function(e) {
+        previewImage(e, 'returned_preview');
+    });
+
+    function previewImage(event, targetId) {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            document.getElementById(targetId).innerHTML = `<img src="${e.target.result}" alt="preview">`;
+        };
+        reader.readAsDataURL(file);
+    }
+
+    async function processImage(kind) {
+        const input = document.getElementById(kind + '_file');
+        const file = input.files[0];
+        if (!file) { alert('Выберите файл!'); return; }
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        // Отправляем на детекцию
+        const res = await fetch(`/detect/${kind}/${sessionId}`, {
+            method: 'POST',
+            body: formData
+        });
+        const data = await res.json();
+
+        if (data.image_url) {
+            document.getElementById(kind + '_preview').innerHTML =
+                `<img src="${data.image_url}" alt="result">`;
+        }
+    }
+
+    async function compare() {
+        const res = await fetch(`/compare/${sessionId}`);
+        const data = await res.json();
+
+        if (data.error) { alert(data.error); return; }
+
+        let table = `<h4 class="mt-4">Сводная таблица</h4>
+        <div class="table-responsive">
+        <table class="table table-bordered table-striped">
+            <thead><tr>
+                <th>Инструмент</th>
+                <th>Взято</th>
+                <th>Сдано</th>
+                <th>Недостаёт</th>
+            </tr></thead><tbody>`;
+
+        data.summary.forEach(row => {
+            const missing = row.missing > 0 ? `<span class="text-danger">${row.missing}</span>` : row.missing;
+            table += `<tr>
+                <td>${row.tool}</td>
+                <td>${row.taken}</td>
+                <td>${row.returned}</td>
+                <td>${missing}</td>
+            </tr>`;
+        });
+
+        table += `</tbody></table></div>`;
+        document.getElementById('comparison_result').innerHTML = table;
+    }
+</script>
+</body>
+</html>
