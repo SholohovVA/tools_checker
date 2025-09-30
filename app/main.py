@@ -5,9 +5,11 @@ from fastapi.templating import Jinja2Templates
 from PIL import Image
 import io
 import uuid
-from .utils import detect_objects, save_image
+from fastapi.responses import JSONResponse
+from .utils import detect_objects, detect_objects_with_meta, save_image, model
+from .utils import CLASS_MAPPING, convert_to_serializable
 
-app = FastAPI(title="Детекция инструментов (Ultralytics)")
+app = FastAPI(title="Детекция инструментов")
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
@@ -89,3 +91,44 @@ async def api_detect(file: UploadFile = File(...)):
     detections, _ = detect_objects(image)
     # Возвращаем отображаемые названия
     return {"detections": [{"label": d["label"], "confidence": d["confidence"], "bbox": d["bbox"]} for d in detections]}
+
+@app.post("/api/batch-detect")
+async def batch_detect(files: list[UploadFile] = File(...)):
+    all_class_ids = set()
+    images_result = {}
+
+    for file in files:
+        try:
+            contents = await file.read()
+            image = Image.open(io.BytesIO(contents)).convert("RGB")
+            detections, img_w, img_h = detect_objects_with_meta(image)
+
+            for det in detections:
+                all_class_ids.add(det["class_id"])
+
+            image_detections = [
+                {
+                    "class_id": det["class_id"],
+                    "bbox_yolo": det["bbox_yolo"]  # уже list[float], но могут быть numpy.float32 внутри
+                }
+                for det in detections
+            ]
+            images_result[file.filename] = image_detections
+
+        except Exception as e:
+            images_result[file.filename] = {"error": str(e)}
+
+    classes_dict = {}
+    for cid in sorted(all_class_ids):
+        original_name = model.names[cid]
+        display_name = CLASS_MAPPING.get(original_name, original_name)
+        classes_dict[str(cid)] = display_name
+
+    result = {
+        "classes": classes_dict,
+        "images": images_result
+    }
+
+    #Конвертируем всё в JSON-совместимый формат
+    serializable_result = convert_to_serializable(result)
+    return JSONResponse(content=serializable_result)
