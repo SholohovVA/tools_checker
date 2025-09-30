@@ -1,7 +1,10 @@
 from ultralytics import YOLO
 
-def get_model():
-#    return YOLO("models/best.pt")
-    return YOLO("models/best_konec.pt")
+def get_seg_model():
+    return YOLO("models/segmentation_model.pt")
 
-model = get_model()
+def get_tip_model():
+    return YOLO("models/tip_detector_model.pt")
+
+seg_model = get_seg_model()
+tip_model = get_tip_model()

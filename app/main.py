@@ -1,3 +1,4 @@
+import uvicorn
 from fastapi import FastAPI, File, UploadFile, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -6,8 +7,8 @@ from PIL import Image
 import io
 import uuid
 from fastapi.responses import JSONResponse
-from .utils import detect_objects, detect_objects_with_meta, save_image, model
-from .utils import CLASS_MAPPING, convert_to_serializable
+from app.utils import detect_objects, detect_objects_with_meta, save_image, seg_model
+from app.utils import CLASS_MAPPING, convert_to_serializable
 
 app = FastAPI(title="Детекция инструментов")
 
@@ -63,8 +64,8 @@ async def compare(session_id: str):
     taken = sessions[session_id]["taken"]["detections"]
     returned = sessions[session_id]["returned"]["detections"]
 
-    taken_labels = [d["label"] for d in taken]
-    returned_labels = [d["label"] for d in returned]
+    taken_labels = [CLASS_MAPPING[d[-1]] for d in taken]
+    returned_labels = [CLASS_MAPPING[d[-1]] for d in returned]
 
     all_tools = set(taken_labels + returned_labels)
     summary = []
@@ -120,7 +121,7 @@ async def batch_detect(files: list[UploadFile] = File(...)):
 
     classes_dict = {}
     for cid in sorted(all_class_ids):
-        original_name = model.names[cid]
+        original_name = seg_model.names[cid]
         display_name = CLASS_MAPPING.get(original_name, original_name)
         classes_dict[str(cid)] = display_name
 
@@ -132,3 +133,6 @@ async def batch_detect(files: list[UploadFile] = File(...)):
     #Конвертируем всё в JSON-совместимый формат
     serializable_result = convert_to_serializable(result)
     return JSONResponse(content=serializable_result)
+
+if __name__ == '__main__':
+    uvicorn.run(app, host='10.128.95.2', port=8014)
