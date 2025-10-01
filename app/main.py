@@ -105,12 +105,12 @@ async def batch_detect(files: list[UploadFile] = File(...)):
             detections, img_w, img_h = detect_objects_with_meta(image)
 
             for det in detections:
-                all_class_ids.add(det["class_id"])
+                all_class_ids.add(det["-1"])
 
             image_detections = [
                 {
-                    "class_id": det["class_id"],
-                    "bbox_yolo": det["bbox_yolo"]  # уже list[float], но могут быть numpy.float32 внутри
+                    "class_id": det[-1],
+                    "bbox": det[0]
                 }
                 for det in detections
             ]
