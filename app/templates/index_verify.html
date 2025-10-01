@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Детекция инструментов</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .img-container {
+            height: 350px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .img-container img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+        .section-title {
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+        .upload-group {
+            margin-bottom: 1rem;
+        }
+        .result-row {
+            min-height: 400px;
+        }
+        .summary-table tbody tr.status-ok {
+            background-color: #e8f5e9 !important;
+            color: #2e7d32 !important;
+            font-weight: 600;
+        }
+        .summary-table tbody tr.status-error {
+            background-color: #ffebee !important;
+            color: #c62828 !important;
+            font-weight: 600;
+        }
+        .summary-table tbody tr.status-ok td,
+        .summary-table tbody tr.status-error td {
+            background-color: inherit !important;
+            color: inherit !important;
+        }
+        .verification-table .status-verified {
+            background-color: #e8f5e9 !important;
+        }
+        .verification-table .status-error {
+            background-color: #ffebee !important;
+        }
+        .verification-table .status-missing {
+            background-color: #fff3e0 !important;
+        }
+        .progress {
+            height: 20px;
+            margin-top: 5px;
+        }
+        .btn-verify {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+            border: none;
+            color: white;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body class="bg-light">
+<div class="container py-3">
+    <!-- Навигация -->
+    <ul class="nav nav-tabs mb-4">
+        <li class="nav-item">
+            <a class="nav-link active" data-bs-toggle="tab" href="#single">Одиночная проверка</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" data-bs-toggle="tab" href="#batch">Пакетная обработка</a>
+        </li>
+    </ul>
+
+    <div class="tab-content">
+
+        <!-- Вкладка: Одиночная проверка -->
+        <div class="tab-pane fade show active" id="single">
+            <div class="row mb-4 justify-content-center">
+                <div class="col-md-4">
+                    <label for="user_id" class="form-label">ID пользователя</label>
+                    <input type="text" id="user_id" class="form-control" placeholder="Введите ID">
+                </div>
+            </div>
+
+            <input type="hidden" id="session_id" value="{{ session_id }}">
+
+            <div class="row result-row g-4 mb-4">
+                <div class="col-md-6">
+                    <div class="section-title">📸 Взятый инструмент</div>
+                    <div class="upload-group">
+                        <input type="file" id="taken_file" class="form-control" accept="image/*">
+                    </div>
+                    <button class="btn btn-primary" onclick="processImage('taken')">Рассчитать</button>
+                    <div class="img-container mt-3">
+                        <div id="taken_preview" class="text-muted">Выберите фото</div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="section-title">📤 Сданный инструмент</div>
+                    <div class="upload-group">
+                        <input type="file" id="returned_file" class="form-control" accept="image/*">
+                    </div>
+                    <button class="btn btn-success" onclick="processImage('returned')">Рассчитать</button>
+                    <div class="img-container mt-3">
+                        <div id="returned_preview" class="text-muted">Выберите фото</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="text-center mb-4">
+                <button class="btn btn-info me-2" onclick="compare()">📊 Сравнить</button>
+                <button class="btn btn-verify" onclick="verifyObjects()">🔍 Верифицировать объекты</button>
+            </div>
+
+            <div id="comparison_result"></div>
+            <div id="verification_result"></div>
+        </div>
+
+        <!-- Вкладка: Пакетная обработка -->
+        <div class="tab-pane fade" id="batch">
+            <h4 class="mb-3">Пакетная обработка изображений</h4>
+
+            <div class="mb-3">
+                <input type="file" id="batch_files" class="form-control" multiple accept="image/*">
+            </div>
+
+            <button class="btn btn-primary mb-3" onclick="batchProcess()">Рассчитать</button>
+
+            <div id="batch_progress_container"></div>
+            <div id="batch_result"></div>
+        </div>
+
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+    const sessionId = "{{ session_id }}";
+
+    // === Одиночная проверка ===
+    document.getElementById('taken_file')?.addEventListener('change', function(e) {
+        previewImage(e, 'taken_preview');
+    });
+    document.getElementById('returned_file')?.addEventListener('change', function(e) {
+        previewImage(e, 'returned_preview');
+    });
+
+    function previewImage(event, targetId) {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            document.getElementById(targetId).innerHTML = `<img src="${e.target.result}" alt="preview">`;
+        };
+        reader.readAsDataURL(file);
+    }
+
+    async function processImage(kind) {
+        const input = document.getElementById(kind + '_file');
+        const file = input.files[0];
+        if (!file) { alert('Выберите файл!'); return; }
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const res = await fetch(`/detect/${kind}/${sessionId}`, {
+            method: 'POST',
+            body: formData
+        });
+        const data = await res.json();
+
+        if (data.image_url) {
+            document.getElementById(kind + '_preview').innerHTML =
+                `<img src="${data.image_url}" alt="result">`;
+        }
+    }
+
+    async function compare() {
+        const res = await fetch(`/compare/${sessionId}`);
+        const data = await res.json();
+
+        if (data.error) { alert(data.error); return; }
+
+        let table = `<h4 class="mb-3">Сводная таблица</h4>
+        <div class="table-responsive">
+        <table class="table table-bordered summary-table">
+            <thead class="table-light">
+                <tr>
+                    <th>Инструмент</th>
+                    <th>Взято</th>
+                    <th>Сдано</th>
+                    <th>Итог</th>
+                </tr>
+            </thead>
+            <tbody>`;
+
+        data.summary.forEach(row => {
+            const diff = row.returned - row.taken;
+            const rowClass = (diff === 0) ? 'status-ok' : 'status-error';
+            table += `<tr class="${rowClass}">
+                <td>${row.tool}</td>
+                <td>${row.taken}</td>
+                <td>${row.returned}</td>
+                <td>${diff}</td>
+            </tr>`;
+        });
+
+        table += `</tbody></table></div>`;
+        document.getElementById('comparison_result').innerHTML = table;
+    }
+
+    async function verifyObjects() {
+        const res = await fetch(`/verify/${sessionId}`, {
+            method: 'POST'
+        });
+        const data = await res.json();
+
+        if (data.error) {
+            alert(data.error);
+            return;
+        }
+
+        const results = data.verification_results;
+
+        let table = `<h4 class="mb-3 mt-4">🔍 Результаты верификации объектов</h4>
+        <div class="table-responsive">
+        <table class="table table-bordered verification-table">
+            <thead class="table-light">
+                <tr>
+                    <th>Class ID</th>
+                    <th>Имя класса</th>
+                    <th>Сходство</th>
+                    <th>Статус</th>
+                    <th>Детали</th>
+                </tr>
+            </thead>
+            <tbody>`;
+
+        for (const [classId, result] of Object.entries(results)) {
+            let statusClass = '';
+            let statusText = '';
+            let details = '';
+
+            if (result.status === 'verified') {
+                statusClass = result.is_same ? 'status-verified' : '';
+                statusText = result.is_same ? '✅ Совпадает' : '❌ Не совпадает';
+                details = `Сходство: ${result.similarity.toFixed(3)}`;
+            } else if (result.status === 'class_missing') {
+                statusClass = 'status-missing';
+                statusText = '⚠ Отсутствует';
+                details = result.message;
+            } else if (result.status === 'extra_class') {
+                statusClass = 'status-missing';
+                statusText = '⚠ Лишний';
+                details = result.message;
+            } else if (result.status === 'error') {
+                statusClass = 'status-error';
+                statusText = '❌ Ошибка';
+                details = result.message;
+            }
+
+            table += `<tr class="${statusClass}">
+                <td><strong>${classId}</strong></td>
+                <td><strong>${result.class_name}</strong></td>
+                <td>${result.similarity ? result.similarity.toFixed(3) : 'N/A'}</td>
+                <td>${statusText}</td>
+                <td><small>${details}</small></td>
+            </tr>`;
+        }
+
+        table += `</tbody></table></div>`;
+        document.getElementById('verification_result').innerHTML = table;
+    }
+
+    // === Пакетная обработка с отложенным скачиванием ===
+    let batchResultBlob = null;
+
+    async function batchProcess() {
+        const fileInput = document.getElementById('batch_files');
+        const files = fileInput.files;
+        if (files.length === 0) {
+            alert('Выберите хотя бы одно изображение!');
+            return;
+        }
+
+        const formData = new FormData();
+        for (let i = 0; i < files.length; i++) {
+            formData.append('files', files[i]);
+        }
+
+        const progressContainer = document.getElementById('batch_progress_container');
+        const resultContainer = document.getElementById('batch_result');
+        resultContainer.innerHTML = '';
+        progressContainer.innerHTML = `
+            <div class="alert alert-info">Обработка ${files.length} файлов...</div>
+            <div class="progress">
+                <div class="progress-bar progress-bar-striped progress-bar-animated"
+                     role="progressbar" style="width: 100%"></div>
+            </div>
+        `;
+
+        try {
+            const res = await fetch('/api/batch-detect', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!res.ok) throw new Error('Ошибка сервера');
+
+            const jsonText = await res.text();
+            batchResultBlob = new Blob([jsonText], { type: 'application/json' });
+
+            const timestamp = new Date().toISOString().slice(0,19).replace(/:/g,'-');
+            resultContainer.innerHTML = `
+                <div class="alert alert-success d-flex justify-content-between align-items-center">
+                    <span>✅ Файл JSON сформирован</span>
+                    <button class="btn btn-sm btn-outline-success" onclick="downloadBatchResult('${timestamp}')">
+                        Скачать JSON-файл
+                    </button>
+                </div>
+            `;
+
+        } catch (error) {
+            console.error(error);
+            resultContainer.innerHTML =
+                `<div class="alert alert-danger">❌ Ошибка: ${error.message}</div>`;
+        } finally {
+            progressContainer.innerHTML = '';
+        }
+    }
+
+    function downloadBatchResult(timestamp) {
+        if (!batchResultBlob) {
+            alert('Нет данных для скачивания');
+            return;
+        }
+        const url = URL.createObjectURL(batchResultBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `batch_result_${timestamp}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+</script>
+</body>
+</html>
