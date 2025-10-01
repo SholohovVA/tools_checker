@@ -175,5 +175,5 @@ async def batch_detect(files: list[UploadFile] = File(...)):
 
 
 if __name__ == '__main__':
-    # uvicorn.run(app, host='10.128.95.2', port=8014)
-    uvicorn.run(app, host='0.0.0.0', port=8014)
+    uvicorn.run(app, host='10.128.95.2', port=8014)
+    # uvicorn.run(app, host='0.0.0.0', port=8014)
