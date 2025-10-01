@@ -12,8 +12,8 @@ CONFIDENCE = 0.0
 
 # Словарь переименования классов
 CLASS_MAPPING = [
-    "Отвертка «-»",
-    "Отвертка «+»",
+    "Отвертка -",
+    "Отвертка +",
     "Отвертка на смещенный крест",
     "Коловорот",
     "Пассатижи контровочные",
@@ -21,9 +21,24 @@ CLASS_MAPPING = [
     "Шэрница",
     "Разводной ключ",
     "Открывашка для банок с маслом",
-    "Ключ рожковый/накидной ¾",
+    "Ключ рожковый/накидной 3/4",
     "Бокорезы"
 ]
+
+# Соответствие классов сегментации и детекции кончиков
+TIPS_TO_SEG_CLASSES = {
+    0: 3,
+    1: 6,
+    2: 7,
+    3: 8,
+    4: 9,
+    5: 10,
+    6: 0,
+    7: 1,
+    8: 2,
+    9: 4,
+    10: 5
+}
 
 STATIC_DIR = Path("static")
 STATIC_DIR.mkdir(exist_ok=True)
@@ -39,22 +54,28 @@ def detect_objects(image: Image.Image):
     img = np.array(image)
     img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
-    seg_results = seg_model(image)[0]
-    tip_results = tip_model(image)[0]
+    seg_results = seg_model.predict(image)[0]
+    tip_results = tip_model.predict(image, conf=0.5)[0]
+
+    #fix classes of boxes
+    tip_results = tip_results.to('cpu')
+    for i, cls in enumerate(tip_results.boxes.cls):
+        tip_results.boxes.cls[i] = TIPS_TO_SEG_CLASSES[int(cls)]
 
     seg_boxes = extract_boxes(seg_results)
     tip_boxes = extract_boxes(tip_results)
 
-    # # Группируем сегментации по классам (нужно для визуализации и логики)
-    # seg_by_class = {}
-    # for cls_id, box in seg_boxes:
-    #     seg_by_class.setdefault(cls_id, []).append(box)
-
     # Запуск логики постобработки
     boxes = merge_segmentations_with_tips(seg_boxes, tip_boxes)
 
+    seg_items = extract_segmentations_with_masks(seg_results)  # с полигонами
+    tip_items = extract_boxes_with_conf(tip_results)  # только боксы
+
     # Визуализация
-    rendered_image = visualize_final_boxes(img, boxes)
+    rendered_image = visualize_final_boxes(img, boxes, tip_items)
+
+    # Визуализация
+    #rendered_image = visualize_debug_with_polygons_and_tip_boxes(img, seg_items, tip_items)
 
     return boxes, rendered_image
 
@@ -231,7 +252,7 @@ CLASS_COLORS = [
     (0, 0, 255),  # offset_phillips_screwdriver
     (255, 255, 0),  # brace
     (255, 0, 255),  # locking_pliers
-    (0, 255, 255),  # combination_pliers
+    (0, 128, 128),  # combination_pliers
     (128, 0, 0),  # shernica
     (0, 128, 0),  # adjustable_wrench
     (0, 0, 128),  # oil_can_opener
@@ -256,7 +277,8 @@ CLASS_NAMES = [
 
 def visualize_final_boxes(
         image: np.ndarray,
-        final_boxes: List[List[float]]
+        final_boxes: List[List[float]],
+        tip_boxes: List[List[float]]
 ) -> np.ndarray:
     """
     Визуализация итоговых bounding boxes после постобработки.
@@ -277,13 +299,13 @@ def visualize_final_boxes(
 
         # Получаем цвет и имя
         color = CLASS_COLORS[cls_id % len(CLASS_COLORS)]
-        label = f"{CLASS_NAMES[cls_id]} {conf:.2f}"
+        label = f"{CLASS_MAPPING[cls_id]} {conf:.2f}"
 
         # Рисуем бокс
-        cv2.rectangle(vis_img, (x1, y1), (x2, y2), color, 2)
+        cv2.rectangle(vis_img, (x1, y1), (x2, y2), color, 5)
 
         # Фон для подписи
-        (w, h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+        (w, h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_COMPLEX, 0.6, 2)
         cv2.rectangle(vis_img, (x1, y1 - 25), (x1 + w, y1), color, -1)
 
         # Подпись
@@ -291,10 +313,99 @@ def visualize_final_boxes(
             vis_img,
             label,
             (x1, y1 - 5),
-            cv2.FONT_HERSHEY_SIMPLEX,
+            cv2.FONT_HERSHEY_COMPLEX,
             0.6,
             (255, 255, 255),
             2
         )
 
+    for cls_id, conf, box in tip_boxes:
+        x1, y1, x2, y2 = map(int, box)
+        color = CLASS_COLORS[cls_id % len(CLASS_COLORS)]
+        cv2.rectangle(vis_img, (x1, y1), (x2, y2), color, 2)
+        label = f"{CLASS_MAPPING[cls_id]} {conf:.2f}"
+
+        # Фон для подписи
+        (w, h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_COMPLEX, 0.3, 2)
+        cv2.rectangle(vis_img, (x1, y1 - 25), (x1 + w, y1), color, -1)
+
+        # Подпись
+        cv2.putText(
+            vis_img,
+            label,
+            (x1, y1 - 5),
+            cv2.FONT_HERSHEY_COMPLEX,
+            0.3,
+            (255, 255, 255),
+            1
+        )
+
+    return vis_img
+
+def extract_segmentations_with_masks(results):
+    items = []
+    if results.masks is None or len(results.masks) == 0:
+        return items
+    boxes = results.boxes
+    masks = results.masks
+    for i in range(len(boxes)):
+        cls_id = int(boxes.cls[i].item())
+        conf = float(boxes.conf[i].item())
+        box = boxes.xyxy[i].cpu().numpy().tolist()
+        # Полигон: (N, 2) -> список кортежей
+        polygon = masks.xy[i].astype(int).tolist()  # уже в пикселях
+        items.append((cls_id, conf, box, polygon))
+    return items
+
+def extract_boxes_with_conf(results):
+    items = []
+    if results.boxes is None or len(results.boxes) == 0:
+        return items
+    for i in range(len(results.boxes)):
+        cls_id = int(results.boxes.cls[i].item())
+        conf = float(results.boxes.conf[i].item())
+        box = results.boxes.xyxy[i].cpu().numpy().tolist()
+        items.append((cls_id, conf, box))
+    return items
+
+def visualize_debug_with_polygons_and_tip_boxes(
+    image: np.ndarray,
+    seg_items: List[Tuple[int, float, List[float], List[Tuple[int, int]]]],
+    tip_items: List[Tuple[int, float, List[float]]]
+) -> np.ndarray:
+    """
+    Визуализация:
+    - Сегментации: как полигоны (заливка + контур)
+    - Кончики: как bounding boxes (прямоугольники)
+    Args:
+        image: исходное изображение (BGR)
+        seg_items: [(cls_id, conf, box, polygon), ...]
+        tip_items: [(cls_id, conf, box), ...]
+    Returns:
+        np.ndarray: аннотированное изображение (BGR)
+    """
+    vis_img = image.copy()
+    overlay = vis_img.copy()
+    for cls_id, conf, box, polygon in seg_items:
+        color = CLASS_COLORS[cls_id % len(CLASS_COLORS)]
+        # Заливка полупрозрачная
+        cv2.fillPoly(overlay, [np.array(polygon, dtype=np.int32)], color)
+        # Контур
+        cv2.polylines(vis_img, [np.array(polygon, dtype=np.int32)], isClosed=True, color=color, thickness=2)
+        # Подпись у bounding box (для позиционирования)
+        x1, y1, x2, y2 = map(int, box)
+        label = f"S:{CLASS_NAMES[cls_id][:4]} {conf:.2f}"
+        cv2.putText(vis_img, label, (x1, y1 - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+    # Наложение полупрозрачной заливки
+    alpha = 0.3
+    vis_img = cv2.addWeighted(overlay, alpha, vis_img, 1 - alpha, 0)
+    # 2. Рисуем bounding boxes кончиков
+    for cls_id, conf, box in tip_items:
+        x1, y1, x2, y2 = map(int, box)
+        color = CLASS_COLORS[cls_id % len(CLASS_COLORS)]
+        cv2.rectangle(vis_img, (x1, y1), (x2, y2), color, 2)
+        label = f"T:{CLASS_NAMES[cls_id][:4]} {conf:.2f}"
+        cv2.putText(vis_img, label, (x1, y1 - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
     return vis_img
