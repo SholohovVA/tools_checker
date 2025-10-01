@@ -22,12 +22,10 @@ RUN pip install -i https://pypi.org/simple --default-timeout=120 \
         pillow opencv-python-headless ultralytics
 
 
-RUN mkdir -p app/templates static models
+RUN mkdir -p /app/static/original /app/static/results
 
-COPY app/main.py app/main.py
-COPY app/model.py app/model.py
-COPY app/utils.py app/utils.py
-COPY app/templates/index.html app/templates/index.html
+COPY app ./app
+COPY models ./models
 
 RUN touch app/__init__.py
 

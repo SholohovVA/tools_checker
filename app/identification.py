@@ -8,7 +8,7 @@ from PIL import Image
 from torch import nn
 from torch.nn.functional import normalize
 
-from utils import CLASS_MAPPING
+from app.utils import CLASS_MAPPING
 
 
 # from train_identification_vgg16 import SiameseNetwork
