@@ -1,14 +1,17 @@
-import uvicorn
-from fastapi import FastAPI, File, UploadFile, Request
-from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from PIL import Image
 import io
 import uuid
+
+import uvicorn
+from PIL import Image
+from fastapi import FastAPI, File, UploadFile, Request
+from fastapi.responses import HTMLResponse
 from fastapi.responses import JSONResponse
-from app.utils import detect_objects, detect_objects_with_meta, save_image, seg_model
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+
+from app.identification import verificate_objects
 from app.utils import CLASS_MAPPING, convert_to_serializable
+from app.utils import detect_objects, detect_objects_with_meta, save_image, seg_model
 
 app = FastAPI(title="Детекция инструментов")
 
@@ -17,6 +20,7 @@ templates = Jinja2Templates(directory="app/templates")
 
 sessions = {}
 
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     session_id = str(uuid.uuid4())
@@ -24,37 +28,70 @@ async def index(request: Request):
         "taken": {"detections": [], "image_url": None, "original_url": None},
         "returned": {"detections": [], "image_url": None, "original_url": None}
     }
-    return templates.TemplateResponse("index.html", {
+    # return templates.TemplateResponse("index.html", {
+    #     "request": request,
+    #     "session_id": session_id
+    # })
+    return templates.TemplateResponse("index_verify.html", {
         "request": request,
         "session_id": session_id
     })
+
 
 @app.post("/upload_original/{kind}/{session_id}")
 async def upload_original(kind: str, session_id: str, file: UploadFile = File(...)):
     contents = await file.read()
     image = Image.open(io.BytesIO(contents)).convert("RGB")
     filename = f"orig_{kind}_{session_id}_{file.filename}"
-    img_url = save_image(image, filename)
+    img_url = save_image(image, filename, is_original=True)
 
     sessions[session_id][kind]["original_url"] = img_url
-    return {"image_url": img_url}
+    return {"image_url": img_url,
+            "original_url": img_url}
+
 
 @app.post("/detect/{kind}/{session_id}")
 async def detect(kind: str, session_id: str, file: UploadFile = File(...)):
     contents = await file.read()
     image = Image.open(io.BytesIO(contents)).convert("RGB")
-    detections, rendered_img = detect_objects(image)
 
+    # Сохраняем оригинальное изображение
+    original_filename = f"orig_{kind}_{session_id}_{file.filename}"
+    print(f"Saving original image: {original_filename}")
+    original_url = save_image(image, original_filename, is_original=True)
+
+    detections, rendered_img = detect_objects(image)
     filename = f"det_{kind}_{session_id}_{file.filename}"
-    img_url = save_image(rendered_img, filename)
+    print(f"Saving processed image: {filename}")
+    img_url = save_image(rendered_img, filename, is_original=False)
 
     sessions[session_id][kind] = {
         "detections": detections,
         "image_url": img_url,
-        "original_url": sessions[session_id][kind].get("original_url")
+        "original_url": original_url
     }
+    return {"detections": detections, "image_url": img_url,
+            "original_url": original_url}
 
-    return {"detections": detections, "image_url": img_url}
+
+@app.post("/verify/{session_id}")
+async def verify(session_id: str):
+    """Верификация объектов между taken и returned"""
+    if session_id not in sessions:
+        return {"error": "Session not found"}
+
+    taken_data = sessions[session_id]["taken"]
+    returned_data = sessions[session_id]["returned"]
+    if not taken_data.get("detections") or not returned_data.get("detections"):
+        return {"error": "Необходимо сначала обработать оба изображения (taken и returned)"}
+
+    verification_results = verificate_objects(taken_data, returned_data)
+
+    # Сохраняем результаты в сессии
+    sessions[session_id]["verification"] = verification_results
+
+    return {"verification_results": verification_results}
+
 
 @app.get("/compare/{session_id}")
 async def compare(session_id: str):
@@ -85,6 +122,7 @@ async def compare(session_id: str):
         "summary": summary
     }
 
+
 @app.post("/api/detect")
 async def api_detect(file: UploadFile = File(...)):
     contents = await file.read()
@@ -92,6 +130,7 @@ async def api_detect(file: UploadFile = File(...)):
     detections, _ = detect_objects(image)
     # Возвращаем отображаемые названия
     return {"detections": [{"label": d["label"], "confidence": d["confidence"], "bbox": d["bbox"]} for d in detections]}
+
 
 @app.post("/api/batch-detect")
 async def batch_detect(files: list[UploadFile] = File(...)):
@@ -130,9 +169,11 @@ async def batch_detect(files: list[UploadFile] = File(...)):
         "images": images_result
     }
 
-    #Конвертируем всё в JSON-совместимый формат
+    # Конвертируем всё в JSON-совместимый формат
     serializable_result = convert_to_serializable(result)
     return JSONResponse(content=serializable_result)
 
+
 if __name__ == '__main__':
-    uvicorn.run(app, host='10.128.95.2', port=8014)
+    # uvicorn.run(app, host='10.128.95.2', port=8014)
+    uvicorn.run(app, host='0.0.0.0', port=8014)

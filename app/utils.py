@@ -1,9 +1,12 @@
+import pathlib
+from pathlib import Path
+from typing import List, Tuple
+
 import cv2
 import numpy as np
 from PIL import Image
-from pathlib import Path
-from model import seg_model, tip_model
-from typing import List, Tuple, Dict
+
+from app.model import seg_model, tip_model
 
 CONFIDENCE = 0.0
 
@@ -24,6 +27,13 @@ CLASS_MAPPING = [
 
 STATIC_DIR = Path("static")
 STATIC_DIR.mkdir(exist_ok=True)
+pathlib.Path(STATIC_DIR / 'results').mkdir(parents=True, exist_ok=True)
+pathlib.Path(STATIC_DIR / 'original').mkdir(parents=True, exist_ok=True)
+
+print(f"Static dir exists: {STATIC_DIR.exists()}")
+print(f"Original dir exists: {(STATIC_DIR / 'original').exists()}")
+print(f"Results dir exists: {(STATIC_DIR / 'results').exists()}")
+
 
 def detect_objects(image: Image.Image):
     img = np.array(image)
@@ -48,10 +58,39 @@ def detect_objects(image: Image.Image):
 
     return boxes, rendered_image
 
-def save_image(image, filename: str) -> str:
-    path = STATIC_DIR / filename
-    cv2.imwrite(path, image)
-    return f"/static/{filename}"
+
+def save_image(image, filename: str, is_original=False) -> str:
+    """
+    Сохраняет изображение в соответствующую директорию используя PIL
+    """
+    if is_original:
+        path = STATIC_DIR / 'original' / filename
+        # Если image это numpy array, конвертируем в PIL Image
+        if isinstance(image, np.ndarray):
+            # Если image в формате BGR (от cv2), конвертируем в RGB
+            if len(image.shape) == 3 and image.shape[2] == 3:
+                image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            image_pil = Image.fromarray(image)
+        else:
+            image_pil = image
+
+        image_pil.save(str(path), format='JPEG', quality=95)
+        print(f"Original image saved: {path}")
+        return f"/static/original/{filename}"
+    else:
+        path = STATIC_DIR / 'results' / filename
+        # Для обработанных изображений
+        if isinstance(image, np.ndarray):
+            if len(image.shape) == 3 and image.shape[2] == 3:
+                image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            image_pil = Image.fromarray(image)
+        else:
+            image_pil = image
+
+        image_pil.save(str(path), format='JPEG', quality=95)
+        print(f"Processed image saved: {path}")
+        return f"/static/results/{filename}"
+
 
 def bbox_to_yolo_format(xyxy, img_width, img_height):
     """Преобразует [x1, y1, x2, y2] → [x_center, y_center, w, h] (нормализовано)"""
@@ -67,6 +106,7 @@ def bbox_to_yolo_format(xyxy, img_width, img_height):
     y = y * dh
     h = h * dh
     return [round(x, 6), round(y, 6), round(w, 6), round(h, 6)]
+
 
 def detect_objects_with_meta(image: Image.Image):
     img = np.array(image)
@@ -153,7 +193,7 @@ def merge_segmentations_with_tips(
                         tips_in_box += 1
 
             if tips_in_box == 0:
-                # Нет кончиков, отбрасываем все сегментации
+                # Нет кончиков - оставляем сегментацию
                 avg_conf = sum(conf for conf, _ in seg_list) / len(seg_list)
                 output_boxes.append([*merged_box, avg_conf, cls_id])
             elif tips_in_box == 1:
@@ -166,6 +206,7 @@ def merge_segmentations_with_tips(
                     output_boxes.append([*box, conf, cls_id])
 
     return output_boxes
+
 
 def convert_to_serializable(obj):
     """Рекурсивно преобразует numpy-типы в стандартные Python-типы."""
