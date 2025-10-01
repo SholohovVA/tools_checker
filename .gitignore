@@ -2,9 +2,6 @@
 venv
 best.pt
 app/__pycache__
-
-*.pt
-*.pth
 temp
 static/results
 static/original
