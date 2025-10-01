@@ -5,3 +5,5 @@ app/__pycache__
 temp
 static/results
 static/original
+.env
+acme.json
