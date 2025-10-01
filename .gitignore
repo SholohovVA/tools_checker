@@ -3,6 +3,7 @@ venv
 best.pt
 app/__pycache__
 temp
+examples/
 static/results
 static/original
 .env

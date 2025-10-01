@@ -5,7 +5,8 @@ from typing import List, Tuple
 import cv2
 import numpy as np
 from PIL import Image
-
+import torch
+from ultralytics.engine.results import Boxes
 from app.model import seg_model, tip_model
 
 CONFIDENCE = 0.0
@@ -57,26 +58,28 @@ def detect_objects(image: Image.Image):
     seg_results = seg_model.predict(image)[0]
     tip_results = tip_model.predict(image, conf=0.5)[0]
 
-    #fix classes of boxes
     tip_results = tip_results.to('cpu')
-    for i, cls in enumerate(tip_results.boxes.cls):
-        tip_results.boxes.cls[i] = TIPS_TO_SEG_CLASSES[int(cls)]
+    boxes_obj = tip_results.boxes
+    if boxes_obj is not None and len(boxes_obj) > 0:
+        data = boxes_obj.data.clone().detach()
+
+        cls_col = data[:, 5].to(torch.long).cpu()
+        mapped_list = [TIPS_TO_SEG_CLASSES[int(c)] for c in cls_col.tolist()]
+
+        mapped_cls = torch.tensor(mapped_list, dtype=data.dtype, device=data.device)
+        data[:, 5] = mapped_cls
+
+        tip_results.boxes = Boxes(data, orig_shape=boxes_obj.orig_shape)
 
     seg_boxes = extract_boxes(seg_results)
     tip_boxes = extract_boxes(tip_results)
 
-    # Запуск логики постобработки
     boxes = merge_segmentations_with_tips(seg_boxes, tip_boxes)
 
-    seg_items = extract_segmentations_with_masks(seg_results)  # с полигонами
-    tip_items = extract_boxes_with_conf(tip_results)  # только боксы
+    seg_items = extract_segmentations_with_masks(seg_results)
+    tip_items = extract_boxes_with_conf(tip_results)
 
-    # Визуализация
     rendered_image = visualize_final_boxes(img, boxes, tip_items)
-
-    # Визуализация
-    #rendered_image = visualize_debug_with_polygons_and_tip_boxes(img, seg_items, tip_items)
-
     return boxes, rendered_image
 
 

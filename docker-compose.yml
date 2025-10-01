@@ -1,77 +1,27 @@
-
 services:
-  proxy:
-    image: traefik:v2.11
-    container_name: proxy
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
-      - ./traefik/dynamic.yml:/etc/traefik/dynamic/dynamic.yml:ro
-      - ./acme.json:/letsencrypt/acme.json
-    environment:
-      - TZ=Europe/Moscow
-      - TRAEFIK_LOG_LEVEL=${TRAEFIK_LOG_LEVEL:-INFO}
-      - LE_ACME_EMAIL=${LE_ACME_EMAIL}
-      - TRAEFIK_CERTIFICATESRESOLVERS_LE_ACME_EMAIL=${LE_ACME_EMAIL}
-    networks:
-      - web
-
   app:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: app
+    container_name: tools_checker_app
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./app:/app/app
+      - ./models:/app/models
+      - ./static:/app/static
+    env_file:
+      - .env
+    environment:
+      - APP_HOST=0.0.0.0
+      - APP_PORT=8000
+      - UVICORN_WORKERS=1
+      - LOG_LEVEL=info
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/healthz || curl -fsS http://localhost:8000/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
     restart: unless-stopped
 
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: ["gpu"]
-
-    gpus: all
-    environment:
-      - TZ=Europe/Moscow
-    volumes:
-      - ./models:/app/models:ro
-      - ./static:/app/static
-    networks:
-      - web
-    labels:
-      - "traefik.enable=true"
-
-      #HTTP -> HTTPS редирект
-      - "traefik.http.routers.app-http.rule=Host(`${DOMAIN}`)"
-      - "traefik.http.routers.app-http.entrypoints=web"
-      - "traefik.http.routers.app-http.middlewares=https-redirect@file"
-      - "traefik.http.routers.app-http.service=app"
-
-      #Основной роутер по HTTPS
-      - "traefik.http.routers.app.rule=Host(`${DOMAIN}`)"
-      - "traefik.http.routers.app.entrypoints=websecure"
-      - "traefik.http.routers.app.tls=true"
-      - "traefik.http.routers.app.tls.certresolver=le"
-      - "traefik.http.routers.app.middlewares=gzip@file,security-headers@file,rate-limit@file"
-      - "traefik.http.routers.app.service=app"
-     
-      - "traefik.http.services.app.loadbalancer.server.port=8000"
-
-      #healthz
-      - "traefik.http.routers.health.rule=Host(`${DOMAIN}`) && Path(`/healthz`)"
-      - "traefik.http.routers.health.entrypoints=websecure"
-      - "traefik.http.routers.health.tls=true"
-      - "traefik.http.routers.health.tls.certresolver=le"
-      - "traefik.http.routers.health.middlewares=healthz@file,security-headers@file,rate-limit@file"
-      - "traefik.http.services.health.loadbalancer.server.port=8000"
-      - "traefik.http.routers.health.service=app"
-
-networks:
-  web:
-    driver: bridge
