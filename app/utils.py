@@ -140,15 +140,10 @@ def detect_objects_with_meta(image: Image.Image):
     seg_boxes = extract_boxes(seg_results)
     tip_boxes = extract_boxes(tip_results)
 
-    # # Группируем сегментации по классам (нужно для визуализации и логики)
-    # seg_by_class = {}
-    # for cls_id, box in seg_boxes:
-    #     seg_by_class.setdefault(cls_id, []).append(box)
-
     # Запуск логики постобработки
-    boxes = merge_segmentations_with_tips(seg_boxes, tip_boxes)
+    detections = merge_segmentations_with_tips(seg_boxes, tip_boxes)
 
-    return boxes, w, h
+    return detections, w, h
 
 
 def extract_boxes(results):

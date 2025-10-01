@@ -11,7 +11,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.identification import verificate_objects
 from app.utils import CLASS_MAPPING, convert_to_serializable
-from app.utils import detect_objects, detect_objects_with_meta, save_image, seg_model
+from app.utils import detect_objects, detect_objects_with_meta, save_image, bbox_to_yolo_format
 
 app = FastAPI(title="Детекция инструментов")
 
@@ -144,12 +144,12 @@ async def batch_detect(files: list[UploadFile] = File(...)):
             detections, img_w, img_h = detect_objects_with_meta(image)
 
             for det in detections:
-                all_class_ids.add(det["-1"])
+                all_class_ids.add(det[-1])
 
             image_detections = [
                 {
                     "class_id": det[-1],
-                    "bbox": det[0]
+                    "bbox": bbox_to_yolo_format(det[0:4], img_w, img_h)
                 }
                 for det in detections
             ]
@@ -160,8 +160,7 @@ async def batch_detect(files: list[UploadFile] = File(...)):
 
     classes_dict = {}
     for cid in sorted(all_class_ids):
-        original_name = seg_model.names[cid]
-        display_name = CLASS_MAPPING.get(original_name, original_name)
+        display_name = CLASS_MAPPING[cid]
         classes_dict[str(cid)] = display_name
 
     result = {
