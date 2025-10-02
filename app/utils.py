@@ -1,4 +1,5 @@
 import pathlib
+from collections import defaultdict
 from pathlib import Path
 from typing import List, Tuple
 
@@ -57,7 +58,7 @@ def detect_objects(image: Image.Image):
     seg_results = seg_model.predict(image)[0]
     tip_results = tip_model.predict(image, conf=0.5)[0]
 
-    #fix classes of boxes
+    # fix classes of boxes
     tip_results = tip_results.to('cpu')
     for i, cls in enumerate(tip_results.boxes.cls):
         tip_results.boxes.cls[i] = TIPS_TO_SEG_CLASSES[int(cls)]
@@ -73,11 +74,20 @@ def detect_objects(image: Image.Image):
 
     # Визуализация
     rendered_image = visualize_final_boxes(img, boxes, tip_items)
-
     # Визуализация
-    #rendered_image = visualize_debug_with_polygons_and_tip_boxes(img, seg_items, tip_items)
+    # rendered_image = visualize_debug_with_polygons_and_tip_boxes(img, seg_items, tip_items)
 
-    return boxes, rendered_image
+    segmentation_data = defaultdict(dict)
+    for cls_id, conf, box, polygon in seg_items:
+        segmentation_data[cls_id] = {
+            "confidence": conf,
+            "bbox": box,
+        }
+        if not segmentation_data[cls_id].get("polygons", None):
+            segmentation_data[cls_id]["polygons"] = []
+        segmentation_data[cls_id]["polygons"].append(polygon)
+
+    return boxes, rendered_image, segmentation_data
 
 
 def save_image(image, filename: str, is_original=False) -> str:
@@ -337,6 +347,7 @@ def visualize_final_boxes(
 
     return vis_img
 
+
 def extract_segmentations_with_masks(results):
     items = []
     if results.masks is None or len(results.masks) == 0:
@@ -352,6 +363,7 @@ def extract_segmentations_with_masks(results):
         items.append((cls_id, conf, box, polygon))
     return items
 
+
 def extract_boxes_with_conf(results):
     items = []
     if results.boxes is None or len(results.boxes) == 0:
@@ -363,10 +375,11 @@ def extract_boxes_with_conf(results):
         items.append((cls_id, conf, box))
     return items
 
+
 def visualize_debug_with_polygons_and_tip_boxes(
-    image: np.ndarray,
-    seg_items: List[Tuple[int, float, List[float], List[Tuple[int, int]]]],
-    tip_items: List[Tuple[int, float, List[float]]]
+        image: np.ndarray,
+        seg_items: List[Tuple[int, float, List[float], List[Tuple[int, int]]]],
+        tip_items: List[Tuple[int, float, List[float]]]
 ) -> np.ndarray:
     """
     Визуализация:

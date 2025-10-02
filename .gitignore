@@ -5,9 +5,12 @@ app/__pycache__
 temp
 static/results
 static/original
+static/
 .env
 *.env
 acme.json
 models/checkpoint_epoch_0006.pth
 models/segmentation_model.pt
 models/tip_detector_model.pt
+*.pth
+*.pt

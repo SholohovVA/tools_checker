@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app.identification import verificate_objects
+from app.identification import verificate_objects, verificate_solo_objects
 from app.utils import CLASS_MAPPING, convert_to_serializable
 from app.utils import detect_objects, detect_objects_with_meta, save_image, bbox_to_yolo_format
 
@@ -32,7 +32,20 @@ async def index(request: Request):
     #     "request": request,
     #     "session_id": session_id
     # })
-    return templates.TemplateResponse("index_verify.html", {
+    return templates.TemplateResponse("index_ugraded.html", {
+        "request": request,
+        "session_id": session_id
+    })
+
+
+@app.get("/verify-page", response_class=HTMLResponse)
+async def verify_page(request: Request):
+    session_id = str(uuid.uuid4())
+    sessions[session_id] = {
+        "taken": {"detections": [], "image_url": None, "original_url": None},
+        "returned": {"detections": [], "image_url": None, "original_url": None}
+    }
+    return templates.TemplateResponse("verify.html", {
         "request": request,
         "session_id": session_id
     })
@@ -60,7 +73,8 @@ async def detect(kind: str, session_id: str, file: UploadFile = File(...)):
     print(f"Saving original image: {original_filename}")
     original_url = save_image(image, original_filename, is_original=True)
 
-    detections, rendered_img = detect_objects(image)
+    # Получаем детекции с полигонами
+    detections, rendered_img, segmentation_data = detect_objects(image)
     filename = f"det_{kind}_{session_id}_{file.filename}"
     print(f"Saving processed image: {filename}")
     img_url = save_image(rendered_img, filename, is_original=False)
@@ -68,7 +82,8 @@ async def detect(kind: str, session_id: str, file: UploadFile = File(...)):
     sessions[session_id][kind] = {
         "detections": detections,
         "image_url": img_url,
-        "original_url": original_url
+        "original_url": original_url,
+        "segmentation_data": segmentation_data
     }
     return {"detections": detections, "image_url": img_url,
             "original_url": original_url}
@@ -86,11 +101,24 @@ async def verify(session_id: str):
         return {"error": "Необходимо сначала обработать оба изображения (taken и returned)"}
 
     verification_results = verificate_objects(taken_data, returned_data)
-
     # Сохраняем результаты в сессии
     sessions[session_id]["verification"] = verification_results
-
     return {"verification_results": verification_results}
+
+
+@app.post("/verify-page/verify_solo/{session_id}")
+async def verify_solo(session_id: str):
+    """Верификация объектов между taken и returned"""
+    if session_id not in sessions:
+        return {"error": "Session not found"}
+
+    taken_data = sessions[session_id]["taken"]
+    returned_data = sessions[session_id]["returned"]
+
+    verification_results = verificate_solo_objects(taken_data, returned_data)
+    # Сохраняем результаты в сессии
+    sessions[session_id]["verification_solo"] = verification_results
+    return {"verification_solo": verification_results}
 
 
 @app.get("/compare/{session_id}")
@@ -174,5 +202,6 @@ async def batch_detect(files: list[UploadFile] = File(...)):
 
 
 if __name__ == '__main__':
-    uvicorn.run(app, host='10.128.95.2', port=8014)
+    # uvicorn.run(app, host='10.128.95.2', port=8014)
+    uvicorn.run(app, host='0.0.0.0', port=8014)
     # uvicorn.run(app, host='0.0.0.0', port=8014)

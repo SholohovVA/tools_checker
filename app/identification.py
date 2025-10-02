@@ -1,108 +1,24 @@
 import os
+import uuid
 from collections import defaultdict
 
+import cv2
 import torch
-import torchvision.models as models
 import torchvision.transforms as transforms
 from PIL import Image
 from torch import nn
-from torch.nn.functional import normalize
 
 from app.utils import CLASS_MAPPING
+from app.utils_verification import ImprovedSiameseNetwork, add_padding_to_square, preprocess_masks_on_image
 
 
 # from train_identification_vgg16 import SiameseNetwork
 
-class ImprovedSiameseNetwork(nn.Module):
-    def __init__(self, embedding_dim=512, input_size=320, backbone='resnet50'):
-        super(ImprovedSiameseNetwork, self).__init__()
-        self.input_size = input_size
-        self.backbone_name = backbone
 
-        # Выбор backbone архитектуры
-        if backbone == 'resnet50':
-            base_model = models.resnet50(pretrained=True)
-            self.feature_dim = 2048
-        elif backbone == 'resnet101':
-            base_model = models.resnet101(pretrained=True)
-            self.feature_dim = 2048
-        elif backbone == 'efficientnet_b3':
-            base_model = models.efficientnet_b3(pretrained=True)
-            self.feature_dim = 1536
-        elif backbone == 'resnet34':
-            base_model = models.resnet34(pretrained=True)
-            self.feature_dim = 512
-        else:
-            raise ValueError(f"Unsupported backbone: {backbone}")
-
-        # Извлекаем слои до полносвязных
-        if backbone.startswith('resnet'):
-            self.feature_extractor = nn.Sequential(*list(base_model.children())[:-1])
-        elif backbone.startswith('efficientnet'):
-            self.feature_extractor = base_model.features
-            # Для EfficientNet добавляем adaptive pooling
-            self.adaptive_pool = nn.AdaptiveAvgPool2d((1, 1))
-
-        # Проекция в embedding space с улучшенной архитектурой
-        self.embedding = nn.Sequential(
-            nn.Dropout(0.2),
-            nn.Linear(self.feature_dim, 1024),
-            nn.BatchNorm1d(1024),
-            nn.ReLU(inplace=True),
-
-            nn.Dropout(0.2),
-            nn.Linear(1024, 1024),
-            nn.BatchNorm1d(1024),
-            nn.ReLU(inplace=True),
-
-            nn.Linear(1024, embedding_dim),
-            nn.BatchNorm1d(embedding_dim)
-        )
-
-        # Инициализация весов
-        self._initialize_weights()
-
-    def _initialize_weights(self):
-        """Инициализация весов embedding слоев"""
-        for m in self.embedding.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight)
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
-
-    def forward_once(self, x):
-        if self.backbone_name.startswith('resnet'):
-            x = self.feature_extractor(x)
-            x = x.view(x.size(0), -1)
-        elif self.backbone_name.startswith('efficientnet'):
-            x = self.feature_extractor(x)
-            x = self.adaptive_pool(x)
-            x = x.view(x.size(0), -1)
-
-        x = self.embedding(x)
-        x = normalize(x, p=2, dim=1)  # L2 нормализация
-        return x
-
-    def forward(self, input1, input2=None, input3=None):
-        if input2 is None and input3 is None:
-            # Режим извлечения признаков
-            return self.forward_once(input1)
-        elif input3 is None:
-            # Сиамский режим (два входа)
-            output1 = self.forward_once(input1)
-            output2 = self.forward_once(input2)
-            return output1, output2
-        else:
-            # Триплетный режим (три входа)
-            output1 = self.forward_once(input1)
-            output2 = self.forward_once(input2)
-            output3 = self.forward_once(input3)
-            return output1, output2, output3
-
-
-def load_verification_model():
+def load_verification_model(model_name, weights_name):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     INPUT_SIZE = 320
+
     # Загрузка модели
     transform = transforms.Compose([
         transforms.Resize((INPUT_SIZE, INPUT_SIZE)),
@@ -110,16 +26,41 @@ def load_verification_model():
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
-    model = ImprovedSiameseNetwork(embedding_dim=512, input_size=INPUT_SIZE, backbone='resnet50').to(device)
-    checkpoint = torch.load('models/checkpoint_epoch_0006.pth', map_location=device)
-    model.load_state_dict(checkpoint['model_state_dict'])
+    model = ImprovedSiameseNetwork(embedding_dim=512, input_size=INPUT_SIZE, backbone=model_name).to(device)
+
+    try:
+        # checkpoint = torch.load('models/checkpoint_best_resnet_v1.pth', map_location=device)
+        checkpoint = torch.load(f'models/{weights_name}', map_location=device)
+
+        # Проверяем структуру checkpoint
+        print("Keys in checkpoint:", checkpoint.keys())
+        if 'model_state_dict' in checkpoint:
+            model_state_dict = checkpoint['model_state_dict']
+            print("First few keys in model_state_dict:", list(model_state_dict.keys())[:10])
+
+            # Загружаем state dict с обработкой несовпадений
+            model.load_state_dict(model_state_dict, strict=False)
+            print("Model loaded successfully with strict=False")
+        else:
+            print("No 'model_state_dict' found in checkpoint")
+
+    except Exception as e:
+        print(f"Error loading model: {e}")
+        print("Using randomly initialized model")
+
     model.eval()
     return model, transform
 
 
+THRESHOLD = 0.85
+model_name = 'resnet50'
+weights_name = 'checkpoint_best_resnet_v1.pth'
+
+# model_name = 'mobilenet_v3_small'
+# weights_name = 'checkpoint_last_mobilenet_v3s.pth'
+verification_model, transform = load_verification_model(model_name, weights_name)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-verification_model, transform = load_verification_model()
-THRESHOLD = 0.7
+
 
 def verify_images(img1, img2, threshold=0.7):
     """
@@ -142,12 +83,16 @@ def verify_images(img1, img2, threshold=0.7):
 
 def verificate_objects(data_taken, data_returned):
     det_taken = data_taken["detections"]
+    seg_taken = data_taken["segmentation_data"]
     url_taken = data_taken["original_url"]
     det_returned = data_returned["detections"]
+    seg_returned = data_returned["segmentation_data"]
     url_returned = data_returned["original_url"]
     try:
-        img_taken = Image.open(url_taken.replace('/static/', 'static/')).convert('RGB')
-        img_returned = Image.open(url_returned.replace('/static/', 'static/')).convert('RGB')
+        # img_taken = Image.open(url_taken.replace('/static/', 'static/')).convert('RGB')
+        img_taken_src = cv2.imread(url_taken.replace('/static/', 'static/'))
+        # img_returned = Image.open(url_returned.replace('/static/', 'static/')).convert('RGB')
+        img_returned_src = cv2.imread(url_returned.replace('/static/', 'static/'))
     except Exception as e:
         print(f"Ошибка загрузки изображений: {e}")
         return []
@@ -173,12 +118,14 @@ def verificate_objects(data_taken, data_returned):
 
     # Проходим по всем детекциям в taken
     for cls_id_t, bbox_t in det_taken_by_class.items():
-        x1_t, y1_t, x2_t, y2_t = map(int, bbox_t)
-
+        seg_t = seg_taken[cls_id_t]
         # обрезаем изображение
-        crop_taken = img_taken.crop((x1_t, y1_t, x2_t, y2_t))
+        crop_taken = preprocess_masks_on_image(img_taken_src, seg_t, bbox_t)
+        crop_taken_resized = add_padding_to_square(crop_taken, target_size=320)
+        # x1_t, y1_t, x2_t, y2_t = map(int, bbox_t)
+        # crop_taken = img_taken.crop((x1_t, y1_t, x2_t, y2_t))
 
-        if cls_id_t not in det_returned_by_class:
+        if cls_id_t not in det_returned_by_class or cls_id_t not in seg_returned:
             verification_results[cls_id_t] = {
                 "class_name": CLASS_MAPPING[cls_id_t],
                 "similarity": 0.0,
@@ -188,24 +135,29 @@ def verificate_objects(data_taken, data_returned):
             }
             continue
 
+        seg_r = seg_returned[cls_id_t]
         bbox_r = det_returned_by_class[cls_id_t]
-        x1_r, y1_r, x2_r, y2_r = map(int, bbox_r)
-        crop_returned = img_returned.crop((x1_r, y1_r, x2_r, y2_r))
+
+        crop_returned = preprocess_masks_on_image(img_returned_src, seg_r, bbox_r)
+        crop_returned_resized = add_padding_to_square(crop_returned, target_size=320)
+
+        # x1_r, y1_r, x2_r, y2_r = map(int, bbox_r)
+        # crop_returned = img_returned.crop((x1_r, y1_r, x2_r, y2_r))
 
         # Верифицируем обрезанные области
         try:
             # Сохраняем временные файлы для верификации
-            temp_taken_path = f"temp/taken_crop_{cls_id_t}.jpg"
-            temp_returned_path = f"temp/returned_crop_{cls_id_t}.jpg"
+            temp_taken_path = f"static/verification/taken_crop_{cls_id_t}.jpg"
+            temp_returned_path = f"static/verification/returned_crop_{cls_id_t}.jpg"
 
             # Создаем временную директорию если нет
-            os.makedirs("temp", exist_ok=True)
+            os.makedirs("static/verification", exist_ok=True)
 
-            crop_taken.save(temp_taken_path)
-            crop_returned.save(temp_returned_path)
+            crop_taken_resized.save(temp_taken_path)
+            crop_returned_resized.save(temp_returned_path)
 
             # Выполняем верификацию
-            is_same, similarity = verify_images(crop_taken, crop_returned, threshold=THRESHOLD)
+            is_same, similarity = verify_images(crop_taken_resized, crop_returned_resized, threshold=THRESHOLD)
             verification_results[cls_id_t] = {
                 "class_name": CLASS_MAPPING[cls_id_t],
                 "similarity": similarity,
@@ -233,4 +185,50 @@ def verificate_objects(data_taken, data_returned):
                 "message": f"Класс {cls_id_r} отсутствует во взятых инструментах"
             }
 
+    return verification_results
+
+
+def verificate_solo_objects(data_taken, data_returned):
+    url_taken = data_taken["original_url"]
+    url_returned = data_returned["original_url"]
+    try:
+        img_taken_src = Image.open(url_taken.replace('/static/', 'static/')).convert('RGB')
+        # img_taken_src = cv2.imread(url_taken.replace('/static/', 'static/'))
+        img_returned_src = Image.open(url_returned.replace('/static/', 'static/')).convert('RGB')
+        # img_returned_src = cv2.imread(url_returned.replace('/static/', 'static/'))
+    except Exception as e:
+        print(f"Ошибка загрузки изображений: {e}")
+        return []
+
+    img_taken_pad = add_padding_to_square(img_taken_src, target_size=320)
+    img_returned_pad = add_padding_to_square(img_returned_src, target_size=320)
+
+    # x1_r, y1_r, x2_r, y2_r = map(int, bbox_r)
+    # crop_returned = img_returned.crop((x1_r, y1_r, x2_r, y2_r))
+
+    # Верифицируем обрезанные области
+    try:
+        # Сохраняем временные файлы для верификации
+        rand_hash = uuid.uuid4().hex
+        temp_taken_path = f"static/verification_solo/{rand_hash}_taken_crop.jpg"
+        temp_returned_path = f"static/verification_solo/{rand_hash}_returned_crop.jpg"
+
+        # Создаем временную директорию если нет
+        os.makedirs("static/verification_solo", exist_ok=True)
+
+        img_taken_pad.save(temp_taken_path)
+        img_returned_pad.save(temp_returned_path)
+
+        # Выполняем верификацию
+        is_same, similarity = verify_images(img_taken_pad, img_returned_pad, threshold=THRESHOLD)
+        verification_results = {
+            "similarity": similarity,
+            "is_same": is_same,
+            "status": "verified"}
+    except Exception as e:
+        print(f"Ошибка обработки изображений: {e}")
+        verification_results = {
+            "error": f"Ошибка обработки: {str(e)}",
+            "status": "error"
+        }
     return verification_results

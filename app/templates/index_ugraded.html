@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Детекция инструментов</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .img-container {
+            height: 350px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            overflow: hidden;
+            position: relative;
+        }
+        .img-container img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .img-container img:hover {
+            transform: scale(1.02);
+        }
+        .section-title {
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+        .upload-group {
+            margin-bottom: 1rem;
+        }
+        .result-row {
+            min-height: 400px;
+        }
+        .summary-table tbody tr.status-ok {
+            background-color: #e8f5e9 !important;
+            color: #2e7d32 !important;
+            font-weight: 600;
+        }
+        .summary-table tbody tr.status-error {
+            background-color: #ffebee !important;
+            color: #c62828 !important;
+            font-weight: 600;
+        }
+        .summary-table tbody tr.status-ok td,
+        .summary-table tbody tr.status-error td {
+            background-color: inherit !important;
+            color: inherit !important;
+        }
+        .verification-table .status-verified {
+            background-color: #e8f5e9 !important;
+        }
+        .verification-table .status-error {
+            background-color: #ffebee !important;
+        }
+        .verification-table .status-missing {
+            background-color: #fff3e0 !important;
+        }
+        .progress {
+            height: 20px;
+            margin-top: 5px;
+        }
+        .btn-verify {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+            border: none;
+            color: white;
+            font-weight: bold;
+        }
+
+        /* Модальное окно для полноэкранного просмотра - ИСПРАВЛЕНО */
+        .modal-fullscreen-img {
+            --bs-modal-width: 100vw;
+            --bs-modal-margin: 0px;
+        }
+        .modal-fullscreen-img .modal-dialog {
+            max-width: none;
+            width: 100vw;
+            height: 100vh;
+            margin: 0;
+        }
+        .modal-fullscreen-img .modal-content {
+            background: rgba(0,0,0,0.95);
+            border: none;
+            border-radius: 0;
+            height: 100vh;
+            position: relative;
+            cursor: pointer; /* Курсор для закрытия по клику на фон */
+        }
+        .modal-fullscreen-img .modal-header {
+            border-bottom: none;
+            position: absolute;
+            top: 0;
+            right: 0;
+            z-index: 1060;
+            padding: 1rem;
+        }
+        .modal-fullscreen-img .modal-body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            height: 100vh;
+            width: 100vw;
+            cursor: default;
+        }
+        .modal-fullscreen-img img {
+            max-width: 95vw;
+            max-height: 95vh;
+            width: auto;
+            height: auto;
+            object-fit: contain;
+            cursor: zoom-in;
+            transition: transform 0.3s ease;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+        /* Улучшенная кнопка закрытия */
+        .modal-fullscreen-img .btn-close {
+            background: #fff url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%23000'%3e%3cpath d='M.293.293a1 1 0 0 1 1.414 0L8 6.586 14.293.293a1 1 0 1 1 1.414 1.414L9.414 8l6.293 6.293a1 1 0 0 1-1.414 1.414L8 9.414l-6.293 6.293a1 1 0 0 1-1.414-1.414L6.586 8 .293 1.707a1 1 0 0 1 0-1.414z'/%3e%3c/svg%3e") center/1em auto no-repeat;
+            opacity: 1;
+            padding: 1rem;
+            background-size: 1.5em;
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 1070;
+            border: 2px solid rgba(255,255,255,0.8);
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+            transition: all 0.3s ease;
+        }
+        .modal-fullscreen-img .btn-close:hover {
+            opacity: 1;
+            background-color: #fff;
+            border-color: #fff;
+            transform: scale(1.1);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.7);
+        }
+
+        /* Индикаторы состояния */
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .status-waiting { background-color: #6c757d; }
+        .status-processing { background-color: #ffc107; }
+        .status-ready { background-color: #28a745; }
+        .status-error { background-color: #dc3545; }
+
+        .processing-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255,255,255,0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            z-index: 10;
+        }
+        .spinner-border {
+            width: 3rem;
+            height: 3rem;
+        }
+
+        .image-actions {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 5;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .img-container:hover .image-actions {
+            opacity: 1;
+        }
+        .btn-sm {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.875rem;
+        }
+
+        /* Улучшенные стили для полноэкранного режима */
+        .fullscreen-controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.7);
+            padding: 10px 20px;
+            border-radius: 25px;
+            display: flex;
+            gap: 10px;
+            z-index: 1050;
+        }
+        .fullscreen-controls .btn {
+            color: white;
+            border: 1px solid rgba(255,255,255,0.3);
+        }
+        .fullscreen-controls .btn:hover {
+            background: rgba(255,255,255,0.1);
+        }
+
+        /* Стили для миниатюр в таблице */
+        .table-image-thumb {
+            width: 80px;
+            height: 60px;
+            object-fit: cover;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: transform 0.2s;
+            border: 2px solid #dee2e6;
+        }
+        .table-image-thumb:hover {
+            transform: scale(1.1);
+            border-color: #007bff;
+        }
+        .image-cell {
+            text-align: center;
+            vertical-align: middle;
+        }
+        .image-label {
+            font-size: 0.8em;
+            color: #6c757d;
+            margin-top: 2px;
+        }
+
+        /* Упрощенные кнопки без спиннера */
+        .btn-simple {
+            min-width: 120px;
+            height: 38px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 6px 12px;
+        }
+
+        /* Стили для статуса верификации */
+        .verification-status {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+        }
+        .verification-processing {
+            background-color: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+        }
+        .verification-success {
+            background-color: #d1edff;
+            border: 1px solid #b3d9ff;
+            color: #004085;
+        }
+        .verification-error {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body class="bg-light">
+<div class="container py-3">
+    <!-- Навигация -->
+    <ul class="nav nav-tabs mb-4">
+        <li class="nav-item">
+            <a class="nav-link active" data-bs-toggle="tab" href="#single">Одиночная проверка</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" data-bs-toggle="tab" href="#batch">Пакетная обработка</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" href="/verify-page">🔍 Режим идентификации</a>
+        </li>
+    </ul>
+    <div class="tab-content">
+
+        <!-- Вкладка: Одиночная проверка -->
+        <div class="tab-pane fade show active" id="single">
+            <div class="row mb-4 justify-content-center">
+                <div class="col-md-4">
+                    <label for="user_id" class="form-label">ID пользователя</label>
+                    <input type="text" id="user_id" class="form-control" placeholder="Введите ID">
+                </div>
+            </div>
+
+            <input type="hidden" id="session_id" value="{{ session_id }}">
+
+            <div class="row result-row g-4 mb-4">
+                <div class="col-md-6">
+                    <div class="section-title">
+                        <span class="status-indicator status-waiting" id="taken_status"></span>
+                        📸 Взятый инструмент
+                    </div>
+                    <div class="upload-group">
+                        <input type="file" id="taken_file" class="form-control" accept="image/*">
+                    </div>
+                    <button class="btn btn-primary btn-simple" onclick="processImage('taken')" id="taken_btn">
+                        Рассчитать
+                    </button>
+                    <div class="img-container mt-3" id="taken_container">
+                        <div id="taken_preview" class="text-muted">Выберите фото</div>
+                        <div class="image-actions">
+                            <button class="btn btn-light btn-sm" onclick="openFullscreen('taken')" title="Открыть на весь экран">
+                                🔍
+                            </button>
+                        </div>
+                    </div>
+                    <div id="taken_info" class="mt-2 small text-muted"></div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="section-title">
+                        <span class="status-indicator status-waiting" id="returned_status"></span>
+                        📤 Сданный инструмент
+                    </div>
+                    <div class="upload-group">
+                        <input type="file" id="returned_file" class="form-control" accept="image/*">
+                    </div>
+                    <button class="btn btn-success btn-simple" onclick="processImage('returned')" id="returned_btn">
+                        Рассчитать
+                    </button>
+                    <div class="img-container mt-3" id="returned_container">
+                        <div id="returned_preview" class="text-muted">Выберите фото</div>
+                        <div class="image-actions">
+                            <button class="btn btn-light btn-sm" onclick="openFullscreen('returned')" title="Открыть на весь экран">
+                                🔍
+                            </button>
+                        </div>
+                    </div>
+                    <div id="returned_info" class="mt-2 small text-muted"></div>
+                </div>
+            </div>
+
+            <div class="text-center mb-4">
+                <button class="btn btn-info me-2" onclick="compare()">📊 Сравнить</button>
+                <button class="btn btn-verify btn-with-spinner" onclick="verifyObjects()" id="verify_btn">
+                    <span class="btn-text">🔍 Верифицировать объекты</span>
+                    <span class="spinner-border spinner-border-sm d-none btn-spinner" id="verify_spinner"></span>
+                </button>
+            </div>
+
+            <div id="verification_status"></div>
+            <div id="comparison_result"></div>
+            <div id="verification_result"></div>
+        </div>
+
+        <!-- Вкладка: Пакетная обработка -->
+        <div class="tab-pane fade" id="batch">
+            <h4 class="mb-3">Пакетная обработка изображений</h4>
+
+            <div class="mb-3">
+                <input type="file" id="batch_files" class="form-control" multiple accept="image/*">
+            </div>
+
+            <button class="btn btn-primary mb-3" onclick="batchProcess()">Рассчитать</button>
+
+            <div id="batch_progress_container"></div>
+            <div id="batch_result"></div>
+        </div>
+
+    </div>
+</div>
+
+<!-- Модальное окно для полноэкранного просмотра - ИСПРАВЛЕННАЯ ВЕРСИЯ -->
+<div class="modal fade" id="fullscreenModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="true" data-bs-keyboard="true">
+    <div class="modal-dialog modal-fullscreen-img">
+        <div class="modal-content" onclick="closeFullscreenModal(event)">
+            <div class="modal-header">
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" onclick="event.stopPropagation()"></button>
+            </div>
+            <div class="modal-body" onclick="event.stopPropagation()">
+                <img id="fullscreenImage" src="" alt="Полноэкранное изображение"
+                     onclick="zoomImage(event)" ondblclick="resetZoom()">
+            </div>
+            <div class="fullscreen-controls" onclick="event.stopPropagation()">
+                <button class="btn btn-sm" onclick="zoomIn()">+ Увеличить</button>
+                <button class="btn btn-sm" onclick="zoomOut()">- Уменьшить</button>
+                <button class="btn btn-sm" onclick="resetZoom()">⟳ Сбросить</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+    const sessionId = "{{ session_id }}";
+    let currentImages = {
+        taken: null,
+        returned: null
+    };
+    let currentZoom = 1;
+    let tempImagesCache = {}; // Кэш для изображений из папки temp
+    let fullscreenModal = null;
+
+    // Инициализация модального окна при загрузке
+    document.addEventListener('DOMContentLoaded', function() {
+        fullscreenModal = new bootstrap.Modal(document.getElementById('fullscreenModal'));
+
+        updateStatus('taken', 'waiting', 'Ожидание выбора файла...');
+        updateStatus('returned', 'waiting', 'Ожидание выбора файла...');
+    });
+
+    // === Одиночная проверка ===
+    document.getElementById('taken_file')?.addEventListener('change', function(e) {
+        previewImage(e, 'taken');
+    });
+    document.getElementById('returned_file')?.addEventListener('change', function(e) {
+        previewImage(e, 'returned');
+    });
+
+    function updateStatus(kind, status, message = '') {
+        const statusElement = document.getElementById(kind + '_status');
+        const infoElement = document.getElementById(kind + '_info');
+
+        statusElement.className = 'status-indicator';
+        statusElement.classList.add(`status-${status}`);
+
+        if (message) {
+            infoElement.innerHTML = message;
+        }
+    }
+
+    function showProcessingOverlay(kind, show) {
+        const container = document.getElementById(kind + '_container');
+        const btn = document.getElementById(kind + '_btn');
+
+        if (show) {
+            // Создаем оверлей если его нет
+            let overlay = container.querySelector('.processing-overlay');
+            if (!overlay) {
+                overlay = document.createElement('div');
+                overlay.className = 'processing-overlay';
+                overlay.innerHTML = `
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Обработка...</span>
+                    </div>
+                    <div class="mt-2">Обработка изображения...</div>
+                `;
+                container.appendChild(overlay);
+            }
+            overlay.style.display = 'flex';
+
+            // Блокируем кнопку
+            btn.disabled = true;
+        } else {
+            // Убираем оверлей
+            const overlay = container.querySelector('.processing-overlay');
+            if (overlay) {
+                overlay.style.display = 'none';
+            }
+
+            // Разблокируем кнопку
+            btn.disabled = false;
+        }
+    }
+
+    function previewImage(event, kind) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            currentImages[kind] = e.target.result;
+            document.getElementById(kind + '_preview').innerHTML =
+                `<img src="${e.target.result}" alt="preview" onclick="openFullscreen('${kind}')">`;
+            updateStatus(kind, 'waiting', '✅ Файл выбран. Нажмите "Рассчитать" для обработки.');
+        };
+        reader.readAsDataURL(file);
+    }
+
+    async function processImage(kind) {
+        const input = document.getElementById(kind + '_file');
+        const file = input.files[0];
+        if (!file) {
+            alert('Выберите файл!');
+            return;
+        }
+
+        // Показываем состояние обработки
+        updateStatus(kind, 'processing', '⏳ Обработка изображения...');
+        showProcessingOverlay(kind, true);
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const res = await fetch(`/detect/${kind}/${sessionId}`, {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!res.ok) {
+                throw new Error(`Ошибка сервера: ${res.status}`);
+            }
+
+            const data = await res.json();
+
+            if (data.image_url) {
+                currentImages[kind] = data.image_url;
+                document.getElementById(kind + '_preview').innerHTML =
+                    `<img src="${data.image_url}" alt="result" onclick="openFullscreen('${kind}')">`;
+
+                const detectionCount = data.detections ? data.detections.length : 0;
+                updateStatus(kind, 'ready', `✅ Обработка завершена. Найдено объектов: ${detectionCount}`);
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            updateStatus(kind, 'error', `❌ Ошибка обработки: ${error.message}`);
+        } finally {
+            showProcessingOverlay(kind, false);
+        }
+    }
+
+    function openFullscreen(kind) {
+        if (!currentImages[kind]) {
+            alert('Нет изображения для просмотра');
+            return;
+        }
+
+        const fullscreenImage = document.getElementById('fullscreenImage');
+        fullscreenImage.src = currentImages[kind];
+        currentZoom = 1;
+        fullscreenImage.style.transform = `scale(${currentZoom})`;
+
+        fullscreenModal.show();
+    }
+
+    // Функция для закрытия модального окна по клику на фон
+    function closeFullscreenModal(event) {
+        // Закрываем только если кликнули на фон (сам modal-content), а не на его дочерние элементы
+        if (event.target === event.currentTarget) {
+            fullscreenModal.hide();
+        }
+    }
+
+    // Функция для открытия изображения из temp
+    function openTempImage(imagePath, title = '') {
+        const fullscreenImage = document.getElementById('fullscreenImage');
+
+        // Пробуем загрузить изображение из кэша или по прямому URL
+        if (tempImagesCache[imagePath]) {
+            fullscreenImage.src = tempImagesCache[imagePath];
+        } else {
+            // Пытаемся загрузить из статической папки temp
+            const tempUrl = `/static/verification/${imagePath}`;
+            fullscreenImage.src = tempUrl;
+
+            // Сохраняем в кэш после загрузки
+            fullscreenImage.onload = function() {
+                tempImagesCache[imagePath] = tempUrl;
+            };
+
+            fullscreenImage.onerror = function() {
+                alert('Не удалось загрузить изображение: ' + imagePath);
+                console.error('Ошибка загрузки изображения:', imagePath);
+            };
+        }
+
+        currentZoom = 1;
+        fullscreenImage.style.transform = `scale(${currentZoom})`;
+
+        fullscreenModal.show();
+    }
+
+    // Функции для управления масштабом
+    function zoomIn() {
+        currentZoom = Math.min(currentZoom + 0.2, 3);
+        document.getElementById('fullscreenImage').style.transform = `scale(${currentZoom})`;
+    }
+
+    function zoomOut() {
+        currentZoom = Math.max(currentZoom - 0.2, 0.5);
+        document.getElementById('fullscreenImage').style.transform = `scale(${currentZoom})`;
+    }
+
+    function resetZoom() {
+        currentZoom = 1;
+        document.getElementById('fullscreenImage').style.transform = `scale(${currentZoom})`;
+    }
+
+    // Увеличение по клику на изображение
+    function zoomImage(event) {
+        event.stopPropagation(); // Предотвращаем закрытие окна
+        if (currentZoom < 2) {
+            currentZoom += 0.5;
+        } else {
+            currentZoom = 1;
+        }
+        document.getElementById('fullscreenImage').style.transform = `scale(${currentZoom})`;
+    }
+
+    // Закрытие по ESC
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            if (fullscreenModal) {
+                fullscreenModal.hide();
+            }
+        }
+    });
+
+    async function compare() {
+        const res = await fetch(`/compare/${sessionId}`);
+        const data = await res.json();
+
+        if (data.error) { alert(data.error); return; }
+
+        let table = `<h4 class="mb-3">Сводная таблица</h4>
+        <div class="table-responsive">
+        <table class="table table-bordered summary-table">
+            <thead class="table-light">
+                <tr>
+                    <th>Инструмент</th>
+                    <th>Взято</th>
+                    <th>Сдано</th>
+                    <th>Итог</th>
+                </tr>
+            </thead>
+            <tbody>`;
+
+        data.summary.forEach(row => {
+            const diff = row.returned - row.taken;
+            const rowClass = (diff === 0) ? 'status-ok' : 'status-error';
+            table += `<tr class="${rowClass}">
+                <td>${row.tool}</td>
+                <td>${row.taken}</td>
+                <td>${row.returned}</td>
+                <td>${diff}</td>
+            </tr>`;
+        });
+
+        table += `</tbody></table></div>`;
+        document.getElementById('comparison_result').innerHTML = table;
+    }
+
+    async function verifyObjects() {
+        const verifyBtn = document.getElementById('verify_btn');
+        const verifySpinner = document.getElementById('verify_spinner');
+        const statusContainer = document.getElementById('verification_status');
+
+        // Показываем статус обработки
+        statusContainer.innerHTML = `
+            <div class="verification-status verification-processing">
+                <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                ⏳ Выполняется верификация объектов...
+            </div>
+        `;
+
+        // Блокируем кнопку и показываем спиннер
+        verifyBtn.disabled = true;
+        verifySpinner.classList.remove('d-none');
+
+        try {
+            const res = await fetch(`/verify/${sessionId}`, {
+                method: 'POST'
+            });
+
+            if (!res.ok) {
+                throw new Error('Ошибка сервера при верификации');
+            }
+
+            const data = await res.json();
+
+            if (data.error) {
+                throw new Error(data.error);
+            }
+
+            // Показываем успешный статус
+            statusContainer.innerHTML = `
+                <div class="verification-status verification-success">
+                    ✅ Верификация успешно завершена
+                </div>
+            `;
+
+            displayVerificationResults(data.verification_results);
+
+        } catch (error) {
+            console.error('Error:', error);
+            statusContainer.innerHTML = `
+                <div class="verification-status verification-error">
+                    ❌ Ошибка верификации: ${error.message}
+                </div>
+            `;
+        } finally {
+            // Разблокируем кнопку и скрываем спиннер
+            verifyBtn.disabled = false;
+            verifySpinner.classList.add('d-none');
+        }
+    }
+
+    function displayVerificationResults(results) {
+        let table = `<h4 class="mb-3 mt-4">🔍 Результаты верификации объектов</h4>
+        <div class="table-responsive">
+        <table class="table table-bordered verification-table">
+            <thead class="table-light">
+                <tr>
+                    <th>Class ID</th>
+                    <th>Имя класса</th>
+                    <th>Взятый инструмент</th>
+                    <th>Сданный инструмент</th>
+                    <th>Сходство</th>
+                    <th>Статус</th>
+                    <th>Детали</th>
+                </tr>
+            </thead>
+            <tbody>`;
+
+        for (const [classId, result] of Object.entries(results)) {
+            let statusClass = '';
+            let statusText = '';
+            let details = '';
+
+            // Генерируем пути к изображениям в temp
+            const takenImagePath = `taken_crop_${classId}.jpg`;
+            const returnedImagePath = `returned_crop_${classId}.jpg`;
+
+            if (result.status === 'verified') {
+                statusClass = result.is_same ? 'status-verified' : '';
+                statusText = result.is_same ? '✅ Совпадает' : '❌ Не совпадает';
+                details = `Сходство: ${result.similarity.toFixed(3)}`;
+            } else if (result.status === 'class_missing') {
+                statusClass = 'status-missing';
+                statusText = '⚠ Отсутствует';
+                details = result.message;
+            } else if (result.status === 'extra_class') {
+                statusClass = 'status-missing';
+                statusText = '⚠ Лишний';
+                details = result.message;
+            } else if (result.status === 'error') {
+                statusClass = 'status-error';
+                statusText = '❌ Ошибка';
+                details = result.message;
+            }
+
+            table += `<tr class="${statusClass}">
+                <td><strong>${classId}</strong></td>
+                <td><strong>${result.class_name}</strong></td>
+                <td class="image-cell">
+                    ${result.status === 'verified' || result.status === 'class_missing' ?
+                        `<img src="/static/verification/${takenImagePath}"
+                              alt="Взятый ${classId}"
+                              class="table-image-thumb"
+                              onclick="openTempImage('${takenImagePath}', 'Взятый инструмент - ${result.class_name}')"
+                              onerror="this.style.display='none'">
+                         <div class="image-label">Взятый</div>` :
+                        'N/A'}
+                </td>
+                <td class="image-cell">
+                    ${result.status === 'verified' || result.status === 'extra_class' ?
+                        `<img src="/static/verification/${returnedImagePath}"
+                              alt="Сданный ${classId}"
+                              class="table-image-thumb"
+                              onclick="openTempImage('${returnedImagePath}', 'Сданный инструмент - ${result.class_name}')"
+                              onerror="this.style.display='none'">
+                         <div class="image-label">Сданный</div>` :
+                        'N/A'}
+                </td>
+                <td>${result.similarity ? result.similarity.toFixed(3) : 'N/A'}</td>
+                <td>${statusText}</td>
+                <td><small>${details}</small></td>
+            </tr>`;
+        }
+
+        table += `</tbody></table></div>`;
+        document.getElementById('verification_result').innerHTML = table;
+
+        // Предзагружаем изображения для кэша
+        preloadTempImages(results);
+    }
+
+    // Функция для предзагрузки изображений из temp
+    function preloadTempImages(results) {
+        for (const [classId, result] of Object.entries(results)) {
+            if (result.status === 'verified' || result.status === 'class_missing') {
+                const takenImage = new Image();
+                takenImage.src = `/static/verification/taken_crop_${classId}.jpg`;
+                takenImage.onload = function() {
+                    tempImagesCache[`taken_crop_${classId}.jpg`] = this.src;
+                };
+            }
+            if (result.status === 'verified' || result.status === 'extra_class') {
+                const returnedImage = new Image();
+                returnedImage.src = `/static/verification/returned_crop_${classId}.jpg`;
+                returnedImage.onload = function() {
+                    tempImagesCache[`returned_crop_${classId}.jpg`] = this.src;
+                };
+            }
+        }
+    }
+
+    // === Пакетная обработка с отложенным скачиванием ===
+    let batchResultBlob = null;
+
+    async function batchProcess() {
+        const fileInput = document.getElementById('batch_files');
+        const files = fileInput.files;
+        if (files.length === 0) {
+            alert('Выберите хотя бы одно изображение!');
+            return;
+        }
+
+        const formData = new FormData();
+        for (let i = 0; i < files.length; i++) {
+            formData.append('files', files[i]);
+        }
+
+        const progressContainer = document.getElementById('batch_progress_container');
+        const resultContainer = document.getElementById('batch_result');
+        resultContainer.innerHTML = '';
+        progressContainer.innerHTML = `
+            <div class="alert alert-info">Обработка ${files.length} файлов...</div>
+            <div class="progress">
+                <div class="progress-bar progress-bar-striped progress-bar-animated"
+                     role="progressbar" style="width: 100%"></div>
+            </div>
+        `;
+
+        try {
+            const res = await fetch('/api/batch-detect', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!res.ok) throw new Error('Ошибка сервера');
+
+            const jsonText = await res.text();
+            batchResultBlob = new Blob([jsonText], { type: 'application/json' });
+
+            const timestamp = new Date().toISOString().slice(0,19).replace(/:/g,'-');
+            resultContainer.innerHTML = `
+                <div class="alert alert-success d-flex justify-content-between align-items-center">
+                    <span>✅ Файл JSON сформирован</span>
+                    <button class="btn btn-sm btn-outline-success" onclick="downloadBatchResult('${timestamp}')">
+                        Скачать JSON-файл
+                    </button>
+                </div>
+            `;
+
+        } catch (error) {
+            console.error(error);
+            resultContainer.innerHTML =
+                `<div class="alert alert-danger">❌ Ошибка: ${error.message}</div>`;
+        } finally {
+            progressContainer.innerHTML = '';
+        }
+    }
+
+    function downloadBatchResult(timestamp) {
+        if (!batchResultBlob) {
+            alert('Нет данных для скачивания');
+            return;
+        }
+        const url = URL.createObjectURL(batchResultBlob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `batch_result_${timestamp}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+</script>
+</body>
+</html>

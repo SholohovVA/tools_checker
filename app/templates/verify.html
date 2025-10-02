@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Верификация инструментов</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .img-container {
+            height: 350px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .img-container img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+        .section-title {
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+        .upload-group {
+            margin-bottom: 1rem;
+        }
+        .result-row {
+            min-height: 400px;
+        }
+        .verification-table .status-verified {
+            background-color: #e8f5e9 !important;
+        }
+        .verification-table .status-error {
+            background-color: #ffebee !important;
+        }
+        .verification-table .status-missing {
+            background-color: #fff3e0 !important;
+        }
+        .btn-verify {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+            border: none;
+            color: white;
+            font-weight: bold;
+        }
+        .back-link {
+            text-decoration: none;
+            color: #6c757d;
+        }
+        .back-link:hover {
+            color: #495057;
+        }
+        .loading-spinner {
+            display: none;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-left: 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+        .status-ready { background-color: #28a745; }
+        .status-processing { background-color: #ffc107; }
+        .status-waiting { background-color: #6c757d; }
+        .similarity-badge {
+            font-size: 1.1em;
+            padding: 0.5em 1em;
+        }
+        .similarity-high { background-color: #28a745; }
+        .similarity-medium { background-color: #ffc107; color: #000; }
+        .similarity-low { background-color: #dc3545; }
+    </style>
+</head>
+<body class="bg-light">
+<div class="container py-3">
+    <!-- Заголовок с кнопкой назад -->
+    <div class="d-flex align-items-center mb-4">
+        <a href="/" class="back-link me-3">
+            <svg width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
+                <path fill-rule="evenodd" d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z"/>
+            </svg>
+        </a>
+        <h1 class="h3 mb-0">🔍 Верификация инструментов</h1>
+    </div>
+
+    <div class="row mb-4 justify-content-center">
+        <div class="col-md-4">
+            <label for="user_id" class="form-label">ID пользователя</label>
+            <input type="text" id="user_id" class="form-control" placeholder="Введите ID">
+        </div>
+    </div>
+
+    <input type="hidden" id="session_id" value="{{ session_id }}">
+
+    <div class="row result-row g-4 mb-4">
+        <div class="col-md-6">
+            <div class="section-title">
+                <span class="status-indicator" id="taken_status"></span>
+                📸 Взятый инструмент
+            </div>
+            <div class="upload-group">
+                <input type="file" id="taken_file" class="form-control" accept="image/*">
+            </div>
+            <div class="img-container mt-3">
+                <div id="taken_preview" class="text-muted">Выберите фото</div>
+            </div>
+            <div id="taken_info" class="mt-2 small text-muted"></div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="section-title">
+                <span class="status-indicator" id="returned_status"></span>
+                📤 Сданный инструмент
+            </div>
+            <div class="upload-group">
+                <input type="file" id="returned_file" class="form-control" accept="image/*">
+            </div>
+            <div class="img-container mt-3">
+                <div id="returned_preview" class="text-muted">Выберите фото</div>
+            </div>
+            <div id="returned_info" class="mt-2 small text-muted"></div>
+        </div>
+    </div>
+
+    <div class="text-center mb-4">
+        <button class="btn btn-verify" onclick="verifySoloObjects()" id="verify_btn" disabled>
+            🔍 Верифицировать объекты
+            <div class="loading-spinner" id="verify_spinner"></div>
+        </button>
+    </div>
+
+    <div id="verification_result"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+    const sessionId = "{{ session_id }}";
+    let takenProcessed = false;
+    let returnedProcessed = false;
+
+    // Инициализация статусов
+    document.addEventListener('DOMContentLoaded', function() {
+        updateStatus('taken', 'waiting');
+        updateStatus('returned', 'waiting');
+        updateVerifyButton();
+    });
+
+    // Обработчики загрузки файлов
+    document.getElementById('taken_file').addEventListener('change', function(e) {
+        handleFileUpload(e, 'taken');
+    });
+    document.getElementById('returned_file').addEventListener('change', function(e) {
+        handleFileUpload(e, 'returned');
+    });
+
+    function updateStatus(kind, status) {
+        const statusElement = document.getElementById(kind + '_status');
+        statusElement.className = 'status-indicator';
+
+        switch(status) {
+            case 'waiting':
+                statusElement.classList.add('status-waiting');
+                break;
+            case 'processing':
+                statusElement.classList.add('status-processing');
+                break;
+            case 'ready':
+                statusElement.classList.add('status-ready');
+                break;
+        }
+    }
+
+    function updateVerifyButton() {
+        const verifyBtn = document.getElementById('verify_btn');
+        if (takenProcessed && returnedProcessed) {
+            verifyBtn.disabled = false;
+            verifyBtn.classList.remove('btn-secondary');
+            verifyBtn.classList.add('btn-verify');
+        } else {
+            verifyBtn.disabled = true;
+            verifyBtn.classList.remove('btn-verify');
+            verifyBtn.classList.add('btn-secondary');
+        }
+    }
+
+    async function handleFileUpload(event, kind) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        // Показываем превью
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            document.getElementById(kind + '_preview').innerHTML = `<img src="${e.target.result}" alt="preview">`;
+        };
+        reader.readAsDataURL(file);
+
+        // Обновляем статус
+        updateStatus(kind, 'processing');
+        document.getElementById(kind + '_info').innerHTML = '⏳ Сохранение изображения...';
+
+        try {
+            // Отправляем файл на сервер для сохранения
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const response = await fetch(`/upload_original/${kind}/${sessionId}`, {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                throw new Error('Ошибка сохранения изображения');
+            }
+
+            const data = await response.json();
+
+            // Показываем сохраненное изображение
+            document.getElementById(kind + '_preview').innerHTML =
+                `<img src="${data.image_url}" alt="saved">`;
+
+            // Обновляем информацию
+            document.getElementById(kind + '_info').innerHTML =
+                `✅ Изображение сохранено`;
+
+            // Обновляем статус
+            updateStatus(kind, 'ready');
+
+            // Обновляем флаги
+            if (kind === 'taken') takenProcessed = true;
+            if (kind === 'returned') returnedProcessed = true;
+
+            updateVerifyButton();
+
+        } catch (error) {
+            console.error('Error:', error);
+            document.getElementById(kind + '_info').innerHTML =
+                `❌ Ошибка: ${error.message}`;
+            updateStatus(kind, 'waiting');
+
+            if (kind === 'taken') takenProcessed = false;
+            if (kind === 'returned') returnedProcessed = false;
+
+            updateVerifyButton();
+        }
+    }
+
+    async function verifySoloObjects() {
+        const verifyBtn = document.getElementById('verify_btn');
+        const spinner = document.getElementById('verify_spinner');
+        const resultContainer = document.getElementById('verification_result');
+
+        // Показываем спиннер
+        verifyBtn.disabled = true;
+        spinner.style.display = 'inline-block';
+        resultContainer.innerHTML = '<div class="alert alert-info">⏳ Выполняется верификация изображений...</div>';
+
+        try {
+            const response = await fetch(`/verify-page/verify_solo/${sessionId}`, {
+                method: 'POST'
+            });
+
+            if (!response.ok) {
+                throw new Error('Ошибка верификации');
+            }
+
+            const data = await response.json();
+
+            if (data.error) {
+                throw new Error(data.error);
+            }
+
+            displaySoloVerificationResults(data.verification_solo);
+
+        } catch (error) {
+            console.error('Error:', error);
+            resultContainer.innerHTML =
+                `<div class="alert alert-danger">❌ Ошибка верификации: ${error.message}</div>`;
+        } finally {
+            // Скрываем спиннер и активируем кнопку
+            spinner.style.display = 'none';
+            verifyBtn.disabled = false;
+        }
+    }
+
+    function displaySoloVerificationResults(result) {
+        if (!result) {
+            document.getElementById('verification_result').innerHTML =
+                '<div class="alert alert-danger">❌ Нет данных для отображения</div>';
+            return;
+        }
+
+        let resultHTML = '';
+
+        if (result.status === 'verified') {
+            const similarity = result.similarity;
+            const isSame = result.is_same;
+
+            // Определяем цвет баджа в зависимости от сходства
+            let badgeClass = 'similarity-low';
+            if (similarity >= 0.7) badgeClass = 'similarity-high';
+            else if (similarity >= 0.5) badgeClass = 'similarity-medium';
+
+            resultHTML = `
+                <div class="card">
+                    <div class="card-body text-center">
+                        <h4 class="card-title">Результат верификации</h4>
+                        <div class="mb-3">
+                            <span class="badge ${badgeClass} similarity-badge">
+                                Сходство: ${similarity.toFixed(4)}
+                            </span>
+                        </div>
+                        <div class="mb-3">
+                            <h5 class="${isSame ? 'text-success' : 'text-danger'}">
+                                ${isSame ? '✅ Изображения совпадают' : '❌ Изображения не совпадают'}
+                            </h5>
+                        </div>
+                        <div class="alert ${isSame ? 'alert-success' : 'alert-warning'}">
+                            ${isSame ?
+                                'Верификация пройдена успешно. Изображения содержат одинаковые инструменты.' :
+                                'Верификация не пройдена. Изображения содержат разные инструменты.'}
+                        </div>
+                    </div>
+                </div>
+            `;
+        } else {
+            resultHTML = `
+                <div class="alert alert-danger">
+                    <h5>❌ Ошибка верификации</h5>
+                    <p>${result.message || 'Неизвестная ошибка'}</p>
+                </div>
+            `;
+        }
+
+        document.getElementById('verification_result').innerHTML = resultHTML;
+    }
+</script>
+</body>
+</html>
