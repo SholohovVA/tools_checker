@@ -66,25 +66,28 @@ def detect_objects(image: Image.Image):
 
     seg_boxes = extract_boxes(seg_results)
     tip_boxes = extract_boxes(tip_results)
+    seg_items = extract_segmentations_with_masks(seg_results)
 
     # Запуск логики постобработки
-    boxes = merge_segmentations_with_tips(seg_boxes, tip_boxes)
+    boxes, polygons = merge_segmentations_with_tips(seg_boxes, tip_boxes, seg_items)
 
-    seg_items = extract_segmentations_with_masks(seg_results)  # с полигонами
-    tip_items = extract_boxes_with_conf(tip_results)  # только боксы
+    tip_items = extract_boxes_with_conf(tip_results)
 
     # Визуализация
     rendered_image = visualize_final_boxes(img, boxes, tip_items)
 
     segmentation_data = defaultdict(dict)
-    for cls_id, conf, box, polygon in seg_items:
+    for i, (box, poly_list) in enumerate(zip(boxes, polygons)):
+        cls_id = int(box[-1])
+        conf = box[-2]
+
         segmentation_data[cls_id] = {
             "confidence": conf,
-            "bbox": box,
+            "bbox": box[:4],
+            "polygons": poly_list  # Сохраняем все полигоны
         }
-        if not segmentation_data[cls_id].get("polygons", None):
-            segmentation_data[cls_id]["polygons"] = []
-        segmentation_data[cls_id]["polygons"].append(polygon)
+
+        print(f"DEBUG: Final segmentation_data for class {cls_id}: {len(poly_list)} polygons")
 
     return boxes, rendered_image, segmentation_data
 
@@ -182,19 +185,19 @@ def extract_boxes(results):
 
 def merge_segmentations_with_tips(
         seg_boxes: List[Tuple[int, float, List[float]]],
-        tip_boxes: List[Tuple[int, float, List[float]]]
-) -> List[List[float]]:
-    """
-    Постобработка: объединение сегментаций с использованием детекции кончиков.
-    Возвращает итоговые bounding boxes в формате YOLO: [x1, y1, x2, y2, conf, cls]
+        tip_boxes: List[Tuple[int, float, List[float]]],
+        seg_items: List[Tuple[int, float, List[float], List]] = None
+):
+    print(f"DEBUG: Input seg_boxes: {len(seg_boxes)}, seg_items: {len(seg_items) if seg_items else 0}")
 
-    Args:
-        seg_boxes: [(class_id, conf, [x1, y1, x2, y2]), ...]
-        tip_boxes: [(class_id, conf, [x1, y1, x2, y2]), ...]
+    # Детальная отладка seg_items
+    if seg_items:
+        for i, (cls_id, conf, box, polygon) in enumerate(seg_items):
+            print(
+                f"DEBUG: seg_item {i}: class={cls_id}, conf={conf:.2f}, bbox={box[:4]}, polygon_points={len(polygon)}")
+            if len(polygon) < 3:
+                print(f"DEBUG: WARNING: seg_item {i} has only {len(polygon)} points!")
 
-    Returns:
-        List of [x1, y1, x2, y2, conf, cls]
-    """
     # Группируем сегментации по классам
     seg_by_class = {}
     for cls_id, conf, box in seg_boxes:
@@ -205,13 +208,32 @@ def merge_segmentations_with_tips(
     for cls_id, _, box in tip_boxes:
         tips_by_class.setdefault(cls_id, []).append(box)
 
+    # Группируем полигоны по классам - ВАЖНО: не фильтруем здесь!
+    polygons_by_class = defaultdict(list)
+    if seg_items:
+        for cls_id, conf, box, polygon in seg_items:
+            polygons_by_class[cls_id].append(polygon)
+            print(f"DEBUG: Added polygon for class {cls_id}: {len(polygon)} points")
+
     output_boxes = []
+    output_polygons = []
 
     for cls_id, seg_list in seg_by_class.items():
+        class_polygons = polygons_by_class.get(cls_id, [])
+        print(f"DEBUG: Class {cls_id} has {len(seg_list)} segments and {len(class_polygons)} polygons")
+
+        # Отладочная информация о полигонах этого класса
+        for i, poly in enumerate(class_polygons):
+            print(f"DEBUG:   Class {cls_id} polygon {i}: {len(poly)} points")
+
         if len(seg_list) == 1:
             # Один сегмент → один объект
             conf, box = seg_list[0]
             output_boxes.append([*box, conf, cls_id])
+            if class_polygons:
+                output_polygons.append(class_polygons)
+            else:
+                output_polygons.append([])
         else:
             # Объединяем все боксы для проверки зоны
             boxes_only = [b for _, b in seg_list]
@@ -231,20 +253,28 @@ def merge_segmentations_with_tips(
                             merged_box[1] <= tip_cy <= merged_box[3]):
                         tips_in_box += 1
 
-            if tips_in_box == 0:
-                # Нет кончиков - оставляем сегментацию
+            if tips_in_box <= 1:
                 avg_conf = sum(conf for conf, _ in seg_list) / len(seg_list)
                 output_boxes.append([*merged_box, avg_conf, cls_id])
-            elif tips_in_box == 1:
-                # Один кончик, один объект: мержим
-                avg_conf = sum(conf for conf, _ in seg_list) / len(seg_list)
-                output_boxes.append([*merged_box, avg_conf, cls_id])
-            else:  # tips_in_box >= 2
-                # Много кончиков → разные объекты: возвращаем все исходные сегментации
-                for conf, box in seg_list:
+                # Объединяем все полигоны класса
+                output_polygons.append(class_polygons)
+            else:
+                for i, (conf, box) in enumerate(seg_list):
                     output_boxes.append([*box, conf, cls_id])
+                    # Сохраняем соответствующий полигон
+                    polygon = []
+                    if i < len(class_polygons):
+                        polygon = [class_polygons[i]]  # Сохраняем как список с одним полигоном
+                    output_polygons.append(polygon)
 
-    return output_boxes
+    # Финальная отладка
+    print(f"DEBUG: Output - {len(output_boxes)} boxes, {len(output_polygons)} polygon lists")
+    for i, (box, poly_list) in enumerate(zip(output_boxes, output_polygons)):
+        print(f"DEBUG: Output {i}: class={int(box[-1])}, polygons={len(poly_list)}")
+        for j, poly in enumerate(poly_list):
+            print(f"DEBUG:   Polygon {j}: {len(poly)} points")
+
+    return output_boxes, output_polygons
 
 
 def convert_to_serializable(obj):

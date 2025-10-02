@@ -267,6 +267,19 @@
             border: 1px solid #f5c6cb;
             color: #721c24;
         }
+
+        /* Стили для обновления изображений */
+        .image-refresh-indicator {
+            position: absolute;
+            top: 5px;
+            left: 5px;
+            background: rgba(0, 123, 255, 0.9);
+            color: white;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.7em;
+            z-index: 5;
+        }
     </style>
 </head>
 <body class="bg-light">
@@ -403,6 +416,7 @@
     let currentZoom = 1;
     let tempImagesCache = {}; // Кэш для изображений из папки temp
     let fullscreenModal = null;
+    let verificationTimestamp = Date.now(); // Таймстамп для обновления изображений
 
     // Инициализация модального окна при загрузке
     document.addEventListener('DOMContentLoaded', function() {
@@ -508,9 +522,13 @@
             const data = await res.json();
 
             if (data.image_url) {
-                currentImages[kind] = data.image_url;
+                // Добавляем параметр времени для предотвращения кэширования
+                const timestamp = Date.now();
+                const imageUrl = data.image_url + (data.image_url.includes('?') ? '&' : '?') + `t=${timestamp}`;
+
+                currentImages[kind] = imageUrl;
                 document.getElementById(kind + '_preview').innerHTML =
-                    `<img src="${data.image_url}" alt="result" onclick="openFullscreen('${kind}')">`;
+                    `<img src="${imageUrl}" alt="result" onclick="openFullscreen('${kind}')">`;
 
                 const detectionCount = data.detections ? data.detections.length : 0;
                 updateStatus(kind, 'ready', `✅ Обработка завершена. Найдено объектов: ${detectionCount}`);
@@ -545,28 +563,18 @@
         }
     }
 
-    // Функция для открытия изображения из temp
+    // Функция для открытия изображения из temp с обновлением кэша
     function openTempImage(imagePath, title = '') {
         const fullscreenImage = document.getElementById('fullscreenImage');
 
-        // Пробуем загрузить изображение из кэша или по прямому URL
-        if (tempImagesCache[imagePath]) {
-            fullscreenImage.src = tempImagesCache[imagePath];
-        } else {
-            // Пытаемся загрузить из статической папки temp
-            const tempUrl = `/static/verification/${imagePath}`;
-            fullscreenImage.src = tempUrl;
+        // Добавляем параметр времени для предотвращения кэширования
+        const timestamp = Date.now();
+        const tempUrl = `/static/verification/${imagePath}?t=${timestamp}`;
 
-            // Сохраняем в кэш после загрузки
-            fullscreenImage.onload = function() {
-                tempImagesCache[imagePath] = tempUrl;
-            };
+        fullscreenImage.src = tempUrl;
 
-            fullscreenImage.onerror = function() {
-                alert('Не удалось загрузить изображение: ' + imagePath);
-                console.error('Ошибка загрузки изображения:', imagePath);
-            };
-        }
+        // Обновляем кэш
+        tempImagesCache[imagePath] = tempUrl;
 
         currentZoom = 1;
         fullscreenImage.style.transform = `scale(${currentZoom})`;
@@ -649,6 +657,9 @@
         const verifySpinner = document.getElementById('verify_spinner');
         const statusContainer = document.getElementById('verification_status');
 
+        // Обновляем таймстамп для новых изображений
+        verificationTimestamp = Date.now();
+
         // Показываем статус обработки
         statusContainer.innerHTML = `
             <div class="verification-status verification-processing">
@@ -721,9 +732,9 @@
             let statusText = '';
             let details = '';
 
-            // Генерируем пути к изображениям в temp
-            const takenImagePath = `taken_crop_${classId}.jpg`;
-            const returnedImagePath = `returned_crop_${classId}.jpg`;
+            // Генерируем пути к изображениям в temp с параметром времени
+            const takenImagePath = `taken_crop_${classId}.jpg?t=${verificationTimestamp}`;
+            const returnedImagePath = `returned_crop_${classId}.jpg?t=${verificationTimestamp}`;
 
             if (result.status === 'verified') {
                 statusClass = result.is_same ? 'status-verified' : '';
@@ -748,21 +759,25 @@
                 <td><strong>${result.class_name}</strong></td>
                 <td class="image-cell">
                     ${result.status === 'verified' || result.status === 'class_missing' ?
-                        `<img src="/static/verification/${takenImagePath}"
-                              alt="Взятый ${classId}"
-                              class="table-image-thumb"
-                              onclick="openTempImage('${takenImagePath}', 'Взятый инструмент - ${result.class_name}')"
-                              onerror="this.style.display='none'">
+                        `<div style="position: relative;">
+                            <img src="/static/verification/${takenImagePath}"
+                                  alt="Взятый ${classId}"
+                                  class="table-image-thumb"
+                                  onclick="openTempImage('taken_crop_${classId}.jpg', 'Взятый инструмент - ${result.class_name}')"
+                                  onerror="this.style.display='none'">
+                         </div>
                          <div class="image-label">Взятый</div>` :
                         'N/A'}
                 </td>
                 <td class="image-cell">
                     ${result.status === 'verified' || result.status === 'extra_class' ?
-                        `<img src="/static/verification/${returnedImagePath}"
-                              alt="Сданный ${classId}"
-                              class="table-image-thumb"
-                              onclick="openTempImage('${returnedImagePath}', 'Сданный инструмент - ${result.class_name}')"
-                              onerror="this.style.display='none'">
+                        `<div style="position: relative;">
+                            <img src="/static/verification/${returnedImagePath}"
+                                  alt="Сданный ${classId}"
+                                  class="table-image-thumb"
+                                  onclick="openTempImage('returned_crop_${classId}.jpg', 'Сданный инструмент - ${result.class_name}')"
+                                  onerror="this.style.display='none'">
+                         </div>
                          <div class="image-label">Сданный</div>` :
                         'N/A'}
                 </td>
@@ -775,7 +790,7 @@
         table += `</tbody></table></div>`;
         document.getElementById('verification_result').innerHTML = table;
 
-        // Предзагружаем изображения для кэша
+        // Предзагружаем изображения для кэша с новым таймстампом
         preloadTempImages(results);
     }
 
@@ -784,14 +799,14 @@
         for (const [classId, result] of Object.entries(results)) {
             if (result.status === 'verified' || result.status === 'class_missing') {
                 const takenImage = new Image();
-                takenImage.src = `/static/verification/taken_crop_${classId}.jpg`;
+                takenImage.src = `/static/verification/taken_crop_${classId}.jpg?t=${verificationTimestamp}`;
                 takenImage.onload = function() {
                     tempImagesCache[`taken_crop_${classId}.jpg`] = this.src;
                 };
             }
             if (result.status === 'verified' || result.status === 'extra_class') {
                 const returnedImage = new Image();
-                returnedImage.src = `/static/verification/returned_crop_${classId}.jpg`;
+                returnedImage.src = `/static/verification/returned_crop_${classId}.jpg?t=${verificationTimestamp}`;
                 returnedImage.onload = function() {
                     tempImagesCache[`returned_crop_${classId}.jpg`] = this.src;
                 };
