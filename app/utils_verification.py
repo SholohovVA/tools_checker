@@ -132,41 +132,6 @@ class ImprovedSiameseNetwork(nn.Module):
             return output1, output2, output3
 
 
-# def create_masked_image(image: Image.Image, polygons: List) -> Image.Image:
-#     """
-#     Создает изображение с маской объекта по полигону.
-#     Объект сохраняется как есть, фон заливается белым цветом.
-#
-#     Args:
-#         image: исходное PIL изображение
-#         polygons: список списков точек полигона [[(x1,y1), (x2,y2), ...], [(x1,y1), (x2,y2), ...]]
-#
-#     Returns:
-#         PIL Image с белым фоном и объектом
-#     """
-#     # Конвертируем изображение в numpy array
-#     if not isinstance(image, np.ndarray):
-#         img_array = np.array(image)
-#     else:
-#         img_array = image.copy()
-#     # Создаем маску того же размера что и изображение
-#     mask = np.zeros(img_array.shape[:2], dtype=np.uint8)
-#
-#     # Заполняем полигон на маске
-#     for polygon in polygons:
-#         polygon_array = np.array(polygon, dtype=np.int32)
-#         cv2.fillPoly(mask, [polygon_array], 255)
-#
-#     # Создаем белое изображение того же размера
-#     white_bg = np.ones_like(img_array) * 255
-#     # TODO remove maybe
-#     # Копируем пиксели объекта с исходного изображения используя маску
-#     result = np.where(mask[:, :, None] == 255, img_array, white_bg)
-#
-#     # Конвертируем обратно в PIL Image
-#     return result.astype(np.uint8)
-#     # return Image.fromarray(result.astype(np.uint8))
-
 def create_masked_image(image: Image.Image, polygons: List) -> Image.Image:
     """
     Создает изображение с маской объекта по полигонам.
@@ -209,13 +174,6 @@ def create_masked_image(image: Image.Image, polygons: List) -> Image.Image:
     # Image.fromarray(
     return result.astype(np.uint8)
 
-
-# def preprocess_masks_on_image(img, seg_data, det_data):
-#     img_mask = create_masked_image(img, seg_data["polygons"])
-#     x0, y0, x1, y1 = map(int, det_data[:4])
-#     img_crop = img_mask[y0:y1, x0:x1]
-#     image_crop = Image.fromarray(img_crop)
-#     return image_crop
 
 
 def preprocess_masks_on_image(img, seg_data, det_data):

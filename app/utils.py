@@ -76,7 +76,6 @@ def detect_objects(image: Image.Image):
     # Визуализация
     rendered_image = visualize_final_boxes(img, boxes, tip_items)
 
-    # Сохраняем segmentation_data - НЕ ФИЛЬТРУЕМ здесь!
     segmentation_data = defaultdict(dict)
     for i, (box, poly_list) in enumerate(zip(boxes, polygons)):
         cls_id = int(box[-1])
@@ -213,7 +212,6 @@ def merge_segmentations_with_tips(
     polygons_by_class = defaultdict(list)
     if seg_items:
         for cls_id, conf, box, polygon in seg_items:
-            # НЕ ФИЛЬТРУЕМ здесь - сохраняем все полигоны
             polygons_by_class[cls_id].append(polygon)
             print(f"DEBUG: Added polygon for class {cls_id}: {len(polygon)} points")
 
@@ -237,7 +235,7 @@ def merge_segmentations_with_tips(
             else:
                 output_polygons.append([])
         else:
-            # ... остальная логика без изменений ...
+            # Объединяем все боксы для проверки зоны
             boxes_only = [b for _, b in seg_list]
             x1s = [b[0] for b in boxes_only]
             y1s = [b[1] for b in boxes_only]
@@ -245,6 +243,7 @@ def merge_segmentations_with_tips(
             y2s = [b[3] for b in boxes_only]
             merged_box = [min(x1s), min(y1s), max(x2s), max(y2s)]
 
+            # Считаем кончики этого класса внутри merged_box
             tips_in_box = 0
             if cls_id in tips_by_class:
                 for tip_box in tips_by_class[cls_id]:
