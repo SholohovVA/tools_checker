@@ -21,7 +21,7 @@ templates = Jinja2Templates(directory="app/templates")
 sessions = {}
 
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def index(request: Request):
     session_id = str(uuid.uuid4())
     sessions[session_id] = {
@@ -38,7 +38,7 @@ async def index(request: Request):
     })
 
 
-@app.get("/verify-page", response_class=HTMLResponse)
+@app.get("/verify-page", response_class=HTMLResponse, include_in_schema=False)
 async def verify_page(request: Request):
     session_id = str(uuid.uuid4())
     sessions[session_id] = {
@@ -51,7 +51,7 @@ async def verify_page(request: Request):
     })
 
 
-@app.post("/upload_original/{kind}/{session_id}")
+@app.post("/upload_original/{kind}/{session_id}", include_in_schema=False)
 async def upload_original(kind: str, session_id: str, file: UploadFile = File(...)):
     contents = await file.read()
     image = Image.open(io.BytesIO(contents)).convert("RGB")
@@ -63,7 +63,7 @@ async def upload_original(kind: str, session_id: str, file: UploadFile = File(..
             "original_url": img_url}
 
 
-@app.post("/detect/{kind}/{session_id}")
+@app.post("/detect/{kind}/{session_id}", include_in_schema=False)
 async def detect(kind: str, session_id: str, file: UploadFile = File(...)):
     contents = await file.read()
     image = Image.open(io.BytesIO(contents)).convert("RGB")
@@ -89,7 +89,7 @@ async def detect(kind: str, session_id: str, file: UploadFile = File(...)):
             "original_url": original_url}
 
 
-@app.post("/verify/{session_id}")
+@app.post("/verify/{session_id}", include_in_schema=False)
 async def verify(session_id: str):
     """Верификация объектов между taken и returned"""
     if session_id not in sessions:
@@ -106,7 +106,7 @@ async def verify(session_id: str):
     return {"verification_results": verification_results}
 
 
-@app.post("/verify-page/verify_solo/{session_id}")
+@app.post("/verify-page/verify_solo/{session_id}", include_in_schema=False)
 async def verify_solo(session_id: str):
     """Верификация объектов между taken и returned"""
     if session_id not in sessions:
@@ -121,7 +121,7 @@ async def verify_solo(session_id: str):
     return {"verification_solo": verification_results}
 
 
-@app.get("/compare/{session_id}")
+@app.get("/compare/{session_id}", include_in_schema=False)
 async def compare(session_id: str):
     if session_id not in sessions:
         return {"error": "Session not found"}
@@ -150,17 +150,7 @@ async def compare(session_id: str):
         "summary": summary
     }
 
-
-@app.post("/api/detect")
-async def api_detect(file: UploadFile = File(...)):
-    contents = await file.read()
-    image = Image.open(io.BytesIO(contents)).convert("RGB")
-    detections, _ = detect_objects(image)
-    # Возвращаем отображаемые названия
-    return {"detections": [{"label": d["label"], "confidence": d["confidence"], "bbox": d["bbox"]} for d in detections]}
-
-
-@app.post("/api/batch-detect")
+@app.post("/api/detect", summary="Провести детекцию инструментов", tags=["Детекция"])
 async def batch_detect(files: list[UploadFile] = File(...)):
     all_class_ids = set()
     images_result = {}
@@ -210,8 +200,6 @@ async def batch_detect(files: list[UploadFile] = File(...)):
     serializable_result = convert_to_serializable(result)
     return JSONResponse(content=serializable_result)
 
-
 if __name__ == '__main__':
     # uvicorn.run(app, host='10.128.95.2', port=8014)
     uvicorn.run(app, host='0.0.0.0', port=8014)
-    # uvicorn.run(app, host='0.0.0.0', port=8014)
