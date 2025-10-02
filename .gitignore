@@ -12,5 +12,11 @@ acme.json
 models/checkpoint_epoch_0006.pth
 models/segmentation_model.pt
 models/tip_detector_model.pt
+models/checkpoint_best_mobilenet_v3s_39ep.pth
 *.pth
 *.pt
+/README_local.md
+/README_TensorRT.md
+/compose.yml
+/.env_develop
+Dockerfile

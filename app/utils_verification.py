@@ -7,7 +7,6 @@ from PIL import Image
 from torch import nn
 from torch.nn.functional import normalize
 
-
 class ImprovedSiameseNetwork(nn.Module):
     def __init__(self, embedding_dim=512, input_size=320, backbone='resnet50'):
         super(ImprovedSiameseNetwork, self).__init__()
@@ -52,35 +51,32 @@ class ImprovedSiameseNetwork(nn.Module):
             self.feature_extractor = nn.Sequential(*list(base_model.children())[:-1])
         elif backbone.startswith('efficientnet'):
             self.feature_extractor = base_model.features
+            # Для EfficientNet добавляем adaptive pooling
             self.adaptive_pool = nn.AdaptiveAvgPool2d((1, 1))
         elif backbone.startswith('vgg'):
+
             self.feature_extractor = base_model.features
+            # self.channel_reduce = nn.Sequential(
+            #     nn.Conv2d(512, 256, 1),  # Уменьшите количество каналов
+            #     nn.BatchNorm2d(256),
+            #     nn.ReLU(inplace=True)
+            # )
             self.adaptive_pool = nn.AdaptiveAvgPool2d((7, 7))
             self.feature_dim = 512 * 7 * 7
 
         # Проекция в embedding space с улучшенной архитектурой
-        # self.embedding = nn.Sequential(
-        #     nn.Dropout(0.3),
-        #     nn.Linear(self.feature_dim, 1024),
-        #     nn.BatchNorm1d(1024),
-        #     nn.ReLU(inplace=True),
-        #     nn.Dropout(0.3),
-        #     nn.Linear(1024, 1024),
-        #     nn.BatchNorm1d(1024),
-        #     nn.ReLU(inplace=True),
-        #     nn.Dropout(0.3),
-        #     nn.Linear(1024, embedding_dim),
-        #     nn.BatchNorm1d(embedding_dim)
-        # )
         self.embedding = nn.Sequential(
-            nn.Dropout(0.2),
+            nn.Dropout(0.3),
             nn.Linear(self.feature_dim, 1024),
             nn.BatchNorm1d(1024),
             nn.ReLU(inplace=True),
-
-            nn.Dropout(0.2),
-            nn.Linear(1024, 512),
-            nn.BatchNorm1d(512)
+            nn.Dropout(0.3),
+            nn.Linear(1024, 1024),
+            nn.BatchNorm1d(1024),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.3),
+            nn.Linear(1024, embedding_dim),
+            nn.BatchNorm1d(embedding_dim)
         )
 
         # Инициализация весов
@@ -134,47 +130,75 @@ class ImprovedSiameseNetwork(nn.Module):
 
 def create_masked_image(image: Image.Image, polygons: List) -> Image.Image:
     """
-    Создает изображение с маской объекта по полигону.
-    Объект сохраняется как есть, фон заливается белым цветом.
-
-    Args:
-        image: исходное PIL изображение
-        polygons: список списков точек полигона [[(x1,y1), (x2,y2), ...], [(x1,y1), (x2,y2), ...]]
-
-    Returns:
-        PIL Image с белым фоном и объектом
+    Создает изображение с маской объекта по полигонам.
     """
-    # Конвертируем изображение в numpy array
+    print(f"DEBUG: create_masked_image called with {len(polygons)} polygons")
+
     if not isinstance(image, np.ndarray):
         img_array = np.array(image)
     else:
         img_array = image.copy()
-    # Создаем маску того же размера что и изображение
+
+    # Создаем маску
     mask = np.zeros(img_array.shape[:2], dtype=np.uint8)
 
-    # Заполняем полигон на маске
-    for polygon in polygons:
-        polygon_array = np.array(polygon, dtype=np.int32)
-        cv2.fillPoly(mask, [polygon_array], 255)
+    # Фильтруем только валидные полигоны (минимум 3 точки)
+    valid_polygons = []
+    for i, polygon in enumerate(polygons):
+        if len(polygon) >= 3:
+            valid_polygons.append(polygon)
+            print(f"DEBUG: Processing polygon {i} with {len(polygon)} points")
+        else:
+            print(f"DEBUG: Skipping polygon {i} with only {len(polygon)} points")
 
-        # Создаем белое изображение того же размера
-        white_bg = np.ones_like(img_array) * 255
-        # TODO remove maybe
-        # Копируем пиксели объекта с исходного изображения используя маску
-        result = np.where(mask[:, :, None] == 255, img_array, white_bg)
+    if not valid_polygons:
+        print("DEBUG: No valid polygons found, returning original image")
+        return Image.fromarray(img_array)
 
-    # Конвертируем обратно в PIL Image
+    # Заполняем маску
+    for polygon in valid_polygons:
+        try:
+            polygon_array = np.array(polygon, dtype=np.int32)
+            cv2.fillPoly(mask, [polygon_array], 255)
+        except Exception as e:
+            print(f"DEBUG: Error filling polygon: {e}")
+            continue
+
+    # Создаем результат с белым фоном
+    white_bg = np.ones_like(img_array) * 255
+    result = np.where(mask[:, :, None] == 255, img_array, white_bg)
+    # Image.fromarray(
     return result.astype(np.uint8)
-    # return Image.fromarray(result.astype(np.uint8))
+
 
 
 def preprocess_masks_on_image(img, seg_data, det_data):
-    img_mask = create_masked_image(img, seg_data["polygons"])
-    x0, y0, x1, y1 = map(int, det_data[:4])
-    img_crop = img_mask[y0:y1, x0:x1]
-    image_crop = Image.fromarray(img_crop)
-    return image_crop
+    """
+    Создает обрезанное изображение объекта на белом фоне используя маску сегментации.
+    """
+    print(f"DEBUG: preprocess_masks_on_image - image shape: {img.shape}")
 
+    polygons = seg_data.get("polygons", [])
+    print(f"DEBUG: Received {len(polygons)} polygons for processing")
+
+    # Создаем маску
+    img_mask = create_masked_image(img, polygons)
+
+    # Обрезаем по bounding box детекции
+    x0, y0, x1, y1 = map(int, det_data[:4])
+    print(f"DEBUG: Crop coordinates: ({x0}, {y0}) to ({x1}, {y1})")
+
+    # Проверяем границы
+    h, w = img.shape[:2]
+    x0 = max(0, min(x0, w - 1))
+    y0 = max(0, min(y0, h - 1))
+    x1 = max(0, min(x1, w))
+    y1 = max(0, min(y1, h))
+
+    img_crop = img_mask[y0:y1, x0:x1]
+    print(f"DEBUG: Final crop shape: {img_crop.shape}")
+
+    return Image.fromarray(img_crop)
 
 def add_padding_to_square(image: Image.Image, target_size: int = 320,
                           background_color: tuple = (255, 255, 255)) -> Image.Image:

@@ -280,19 +280,21 @@
             <a class="nav-link" data-bs-toggle="tab" href="#batch">Пакетная обработка</a>
         </li>
         <li class="nav-item">
-            <a class="nav-link" href="/verify-page">🔍 Режим идентификации</a>
+            <a class="nav-link" href="/verify-page">Режим идентификации</a>
         </li>
     </ul>
+
+    <div class="row mb-4 justify-content-center">
+        <div class="col-md-4">
+            <label for="user_id" class="form-label">ID пользователя</label>
+            <input type="text" id="user_id" class="form-control" placeholder="Введите ID">
+        </div>
+    </div>
+
     <div class="tab-content">
 
         <!-- Вкладка: Одиночная проверка -->
         <div class="tab-pane fade show active" id="single">
-            <div class="row mb-4 justify-content-center">
-                <div class="col-md-4">
-                    <label for="user_id" class="form-label">ID пользователя</label>
-                    <input type="text" id="user_id" class="form-control" placeholder="Введите ID">
-                </div>
-            </div>
 
             <input type="hidden" id="session_id" value="{{ session_id }}">
 
@@ -343,10 +345,9 @@
             </div>
 
             <div class="text-center mb-4">
-                <button class="btn btn-info me-2" onclick="compare()">📊 Сравнить</button>
-                <button class="btn btn-verify btn-with-spinner" onclick="verifyObjects()" id="verify_btn">
-                    <span class="btn-text">🔍 Верифицировать объекты</span>
-                    <span class="spinner-border spinner-border-sm d-none btn-spinner" id="verify_spinner"></span>
+                <button class="btn btn-info me-2" onclick="compare()"> Сравнить</button>
+                <button class="btn btn-verify" onclick="verifyObjects()" id="verify_btn">
+                    <span class="btn-text"> Верифицировать объекты</span>
                 </button>
             </div>
 
@@ -470,6 +471,10 @@
         const file = event.target.files[0];
         if (!file) return;
 
+        // СБРАСЫВАЕМ СТАТУС ВЕРИФИКАЦИИ ПРИ ЗАГРУЗКЕ НОВОГО ИЗОБРАЖЕНИЯ
+        document.getElementById('verification_status').innerHTML = '';
+        document.getElementById('verification_result').innerHTML = '';
+
         const reader = new FileReader();
         reader.onload = function(e) {
             currentImages[kind] = e.target.result;
@@ -487,6 +492,9 @@
             alert('Выберите файл!');
             return;
         }
+
+        // ОЧИЩАЕМ СВОДНУЮ ТАБЛИЦУ ПРИ НАЧАЛЕ ОБРАБОТКИ НОВОГО ИЗОБРАЖЕНИЯ
+        document.getElementById('comparison_result').innerHTML = '';
 
         // Показываем состояние обработки
         updateStatus(kind, 'processing', '⏳ Обработка изображения...');
@@ -625,18 +633,39 @@
                     <th>Взято</th>
                     <th>Сдано</th>
                     <th>Итог</th>
+                    <th>Статус</th>
                 </tr>
             </thead>
             <tbody>`;
 
         data.summary.forEach(row => {
             const diff = row.returned - row.taken;
-            const rowClass = (diff === 0) ? 'status-ok' : 'status-error';
+
+            // Определяем класс строки и текст статуса
+            let rowClass = '';
+            let statusText = '';
+            let resultText = '';
+
+            if (diff === 0) {
+                rowClass = 'status-ok';
+                statusText = '✅ Все инструменты возвращены';
+                resultText = '0';
+            } else if (diff > 0) {
+                rowClass = 'status-error';
+                statusText = `⚠ Возвращено на ${diff} больше`;
+                resultText = `+${diff}`;
+            } else {
+                rowClass = 'status-error';
+                statusText = `❌ Не хватает ${Math.abs(diff)} инструментов`;
+                resultText = `${diff}`;
+            }
+
             table += `<tr class="${rowClass}">
                 <td>${row.tool}</td>
                 <td>${row.taken}</td>
                 <td>${row.returned}</td>
-                <td>${diff}</td>
+                <td>${resultText}</td>
+                <td><small>${statusText}</small></td>
             </tr>`;
         });
 
@@ -646,20 +675,16 @@
 
     async function verifyObjects() {
         const verifyBtn = document.getElementById('verify_btn');
-        const verifySpinner = document.getElementById('verify_spinner');
         const statusContainer = document.getElementById('verification_status');
 
-        // Показываем статус обработки
         statusContainer.innerHTML = `
             <div class="verification-status verification-processing">
-                <div class="spinner-border spinner-border-sm me-2" role="status"></div>
                 ⏳ Выполняется верификация объектов...
             </div>
         `;
 
-        // Блокируем кнопку и показываем спиннер
+        // Блокируем кнопку
         verifyBtn.disabled = true;
-        verifySpinner.classList.remove('d-none');
 
         try {
             const res = await fetch(`/verify/${sessionId}`, {
@@ -693,9 +718,8 @@
                 </div>
             `;
         } finally {
-            // Разблокируем кнопку и скрываем спиннер
+            // Разблокируем кнопку
             verifyBtn.disabled = false;
-            verifySpinner.classList.add('d-none');
         }
     }
 

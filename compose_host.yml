@@ -1,0 +1,71 @@
+services:
+  proxy:
+    image: traefik:v2.11
+    container_name: proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/dynamic.yml:/etc/traefik/dynamic/dynamic.yml:ro
+      - ./acme.json:/letsencrypt/acme.json
+    environment:
+      - TZ=Europe/Moscow
+      - TRAEFIK_LOG_LEVEL=${TRAEFIK_LOG_LEVEL:-INFO}
+      - LE_ACME_EMAIL=${LE_ACME_EMAIL}
+      - TRAEFIK_CERTIFICATESRESOLVERS_LE_ACME_EMAIL=${LE_ACME_EMAIL}
+    networks:
+      - web
+
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.app
+    container_name: app
+    restart: unless-stopped
+    env_file:
+      - .env
+    expose:
+      - "8000"
+    volumes:
+      - ./app:/app/app
+      - ./models:/app/models
+      - ./static:/app/static
+    gpus: all
+
+    labels:
+      - "traefik.enable=true"
+
+      #HTTP -> HTTPS редирект
+      - "traefik.http.routers.app-http.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.app-http.entrypoints=web"
+      - "traefik.http.routers.app-http.middlewares=https-redirect@file"
+      - "traefik.http.routers.app-http.service=app"
+
+      #Основной роутер по HTTPS
+      - "traefik.http.routers.app.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.app.entrypoints=websecure"
+      - "traefik.http.routers.app.tls=true"
+      - "traefik.http.routers.app.tls.certresolver=le"
+      - "traefik.http.routers.app.middlewares=gzip@file,security-headers@file,rate-limit@file"
+      - "traefik.http.routers.app.service=app"
+
+      - "traefik.http.services.app.loadbalancer.server.port=8000"
+
+      #healthz
+      - "traefik.http.routers.health.rule=Host(`${DOMAIN}`) && Path(`/healthz`)"
+      - "traefik.http.routers.health.entrypoints=websecure"
+      - "traefik.http.routers.health.tls=true"
+      - "traefik.http.routers.health.tls.certresolver=le"
+      - "traefik.http.routers.health.middlewares=healthz@file,security-headers@file,rate-limit@file"
+      - "traefik.http.services.health.loadbalancer.server.port=8000"
+      - "traefik.http.routers.health.service=app"
+    networks:
+      - web
+
+networks:
+  web:
+    driver: bridge

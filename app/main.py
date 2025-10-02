@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+
 from app.identification import verificate_objects, verificate_solo_objects
 from app.utils import CLASS_MAPPING, convert_to_serializable
 from app.utils import detect_objects, detect_objects_with_meta, save_image, bbox_to_yolo_format
@@ -150,7 +151,7 @@ async def compare(session_id: str):
         "summary": summary
     }
 
-@app.post("/api/detect", summary="Провести детекцию инструментов", tags=["Детекция"])
+@app.post("/api/batch-detect", summary="Провести детекцию инструментов", tags=["Детекция"])
 async def batch_detect(files: list[UploadFile] = File(...)):
     all_class_ids = set()
     images_result = {}
@@ -177,6 +178,7 @@ async def batch_detect(files: list[UploadFile] = File(...)):
             image_detections = [
                 {
                     "class_id": det[-1],
+                    "confidence": float(det[-2]),
                     "bbox": bbox_to_yolo_format(det[0:4], img_w, img_h)
                 }
                 for det in detections
@@ -196,10 +198,8 @@ async def batch_detect(files: list[UploadFile] = File(...)):
         "images": images_result
     }
 
-    # Конвертируем всё в JSON-совместимый формат
     serializable_result = convert_to_serializable(result)
     return JSONResponse(content=serializable_result)
 
 if __name__ == '__main__':
-    # uvicorn.run(app, host='10.128.95.2', port=8014)
-    uvicorn.run(app, host='0.0.0.0', port=8014)
+    uvicorn.run(app, host='0.0.0.0', port=8000)
