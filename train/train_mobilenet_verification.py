@@ -951,7 +951,6 @@ def main():
         for cp in checkpoint_info:
             print(f"  {cp['file']}: эпоха {cp['epoch']}, точность {cp['val_accuracy']:.4f}")
 
-    # Обучение с улучшенным triplet loss
     print("Начало обучения с улучшенной архитектурой...")
     trainer.train_triplet(
         train_loader,
@@ -978,6 +977,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-    # nohup python train_resnet.py > training_resnet.log 2>&1 &
-    # tail -f training_resnet.log
