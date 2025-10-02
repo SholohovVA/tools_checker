@@ -26,7 +26,7 @@ def load_verification_model(model_name, weights_name):
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
-    model = ImprovedSiameseNetwork(embedding_dim=512, input_size=INPUT_SIZE, backbone=model_name).to(device)
+    model = ImprovedSiameseNetwork(embedding_dim=256, input_size=INPUT_SIZE, backbone=model_name).to(device)
 
     try:
         # checkpoint = torch.load('models/checkpoint_best_resnet_v1.pth', map_location=device)
@@ -52,12 +52,12 @@ def load_verification_model(model_name, weights_name):
     return model, transform
 
 
-THRESHOLD = 0.85
-model_name = 'resnet50'
-weights_name = 'checkpoint_best_resnet_v1.pth'
+THRESHOLD = 0.55
+# model_name = 'resnet50'
+# weights_name = 'checkpoint_best_resnet_v1.pth'
 
-# model_name = 'mobilenet_v3_small'
-# weights_name = 'checkpoint_last_mobilenet_v3s.pth'
+model_name = 'mobilenet_v3_small'
+weights_name = 'checkpoint_best_mobilenet_v3s_39ep.pth'
 verification_model, transform = load_verification_model(model_name, weights_name)
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -118,7 +118,13 @@ def verificate_objects(data_taken, data_returned):
 
     # Проходим по всем детекциям в taken
     for cls_id_t, bbox_t in det_taken_by_class.items():
+
         seg_t = seg_taken[cls_id_t]
+        polygons_count = len(seg_t.get("polygons", []))
+        print(f"DEBUG: Verification - Class {cls_id_t} has {polygons_count} polygons")
+        if polygons_count > 0:
+            for i, poly in enumerate(seg_t["polygons"]):
+                print(f"DEBUG:   Polygon {i}: {len(poly)} points")
         # обрезаем изображение
         crop_taken = preprocess_masks_on_image(img_taken_src, seg_t, bbox_t)
         crop_taken_resized = add_padding_to_square(crop_taken, target_size=320)
