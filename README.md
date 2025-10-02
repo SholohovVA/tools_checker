@@ -1,2 +1,12 @@
-run:
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8013
+Детекция инструментов для АФЛТ-Системс
+
+Локальный запуск:
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8013
+
+Доступ:
+http://127.0.0.1:8013/
+
+Swagger:
+http://127.0.0.1:8013/docs
+
+Запуск через докер:

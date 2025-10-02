@@ -150,7 +150,7 @@ async def compare(session_id: str):
         "summary": summary
     }
 
-@app.post("/api/detect", summary="Провести детекцию инструментов", tags=["Детекция"])
+@app.post("/api/batch-detect", summary="Провести детекцию инструментов", tags=["Детекция"])
 async def batch_detect(files: list[UploadFile] = File(...)):
     all_class_ids = set()
     images_result = {}
@@ -201,5 +201,4 @@ async def batch_detect(files: list[UploadFile] = File(...)):
     return JSONResponse(content=serializable_result)
 
 if __name__ == '__main__':
-    # uvicorn.run(app, host='10.128.95.2', port=8014)
     uvicorn.run(app, host='0.0.0.0', port=8014)
