@@ -52,35 +52,32 @@ class ImprovedSiameseNetwork(nn.Module):
             self.feature_extractor = nn.Sequential(*list(base_model.children())[:-1])
         elif backbone.startswith('efficientnet'):
             self.feature_extractor = base_model.features
+            # Для EfficientNet добавляем adaptive pooling
             self.adaptive_pool = nn.AdaptiveAvgPool2d((1, 1))
         elif backbone.startswith('vgg'):
+
             self.feature_extractor = base_model.features
+            # self.channel_reduce = nn.Sequential(
+            #     nn.Conv2d(512, 256, 1),  # Уменьшите количество каналов
+            #     nn.BatchNorm2d(256),
+            #     nn.ReLU(inplace=True)
+            # )
             self.adaptive_pool = nn.AdaptiveAvgPool2d((7, 7))
             self.feature_dim = 512 * 7 * 7
 
         # Проекция в embedding space с улучшенной архитектурой
-        # self.embedding = nn.Sequential(
-        #     nn.Dropout(0.3),
-        #     nn.Linear(self.feature_dim, 1024),
-        #     nn.BatchNorm1d(1024),
-        #     nn.ReLU(inplace=True),
-        #     nn.Dropout(0.3),
-        #     nn.Linear(1024, 1024),
-        #     nn.BatchNorm1d(1024),
-        #     nn.ReLU(inplace=True),
-        #     nn.Dropout(0.3),
-        #     nn.Linear(1024, embedding_dim),
-        #     nn.BatchNorm1d(embedding_dim)
-        # )
         self.embedding = nn.Sequential(
-            nn.Dropout(0.2),
+            nn.Dropout(0.3),
             nn.Linear(self.feature_dim, 1024),
             nn.BatchNorm1d(1024),
             nn.ReLU(inplace=True),
-
-            nn.Dropout(0.2),
-            nn.Linear(1024, 512),
-            nn.BatchNorm1d(512)
+            nn.Dropout(0.3),
+            nn.Linear(1024, 1024),
+            nn.BatchNorm1d(1024),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.3),
+            nn.Linear(1024, embedding_dim),
+            nn.BatchNorm1d(embedding_dim)
         )
 
         # Инициализация весов
