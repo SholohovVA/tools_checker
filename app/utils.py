@@ -2,7 +2,8 @@ import pathlib
 from collections import defaultdict
 from pathlib import Path
 from typing import List, Tuple
-
+import torch
+from ultralytics.engine.results import Boxes
 import cv2
 import numpy as np
 from PIL import Image
@@ -61,8 +62,17 @@ def detect_objects(image: Image.Image):
 
     # fix classes of boxes
     tip_results = tip_results.to('cpu')
-    for i, cls in enumerate(tip_results.boxes.cls):
-        tip_results.boxes.cls[i] = TIPS_TO_SEG_CLASSES[int(cls)]
+    boxes_obj = tip_results.boxes
+    if boxes_obj is not None and len(boxes_obj) > 0:
+        data = boxes_obj.data.clone().detach()
+
+        cls_col = data[:, 5].to(torch.long).cpu()
+        mapped_list = [TIPS_TO_SEG_CLASSES[int(c)] for c in cls_col.tolist()]
+
+        mapped_cls = torch.tensor(mapped_list, dtype=data.dtype, device=data.device)
+        data[:, 5] = mapped_cls
+
+        tip_results.boxes = Boxes(data, orig_shape=boxes_obj.orig_shape)
 
     seg_boxes = extract_boxes(seg_results)
     tip_boxes = extract_boxes(tip_results)
@@ -155,8 +165,17 @@ def detect_objects_with_meta(image: Image.Image):
 
     # fix classes of boxes
     tip_results = tip_results.to('cpu')
-    for i, cls in enumerate(tip_results.boxes.cls):
-        tip_results.boxes.cls[i] = TIPS_TO_SEG_CLASSES[int(cls)]
+    boxes_obj = tip_results.boxes
+    if boxes_obj is not None and len(boxes_obj) > 0:
+        data = boxes_obj.data.clone().detach()
+
+        cls_col = data[:, 5].to(torch.long).cpu()
+        mapped_list = [TIPS_TO_SEG_CLASSES[int(c)] for c in cls_col.tolist()]
+
+        mapped_cls = torch.tensor(mapped_list, dtype=data.dtype, device=data.device)
+        data[:, 5] = mapped_cls
+
+        tip_results.boxes = Boxes(data, orig_shape=boxes_obj.orig_shape)
 
     seg_boxes = extract_boxes(seg_results)
     tip_boxes = extract_boxes(tip_results)
