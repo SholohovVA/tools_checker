@@ -177,6 +177,7 @@ async def batch_detect(files: list[UploadFile] = File(...)):
             image_detections = [
                 {
                     "class_id": det[-1],
+                    "confidence": float(det[-2]),
                     "bbox": bbox_to_yolo_format(det[0:4], img_w, img_h)
                 }
                 for det in detections
@@ -201,4 +202,4 @@ async def batch_detect(files: list[UploadFile] = File(...)):
     return JSONResponse(content=serializable_result)
 
 if __name__ == '__main__':
-    uvicorn.run(app, host='0.0.0.0', port=8014)
+    uvicorn.run(app, host='0.0.0.0', port=8000)
