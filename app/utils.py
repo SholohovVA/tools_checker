@@ -162,7 +162,7 @@ def detect_objects_with_meta(image: Image.Image):
     tip_boxes = extract_boxes(tip_results)
 
     # Запуск логики постобработки
-    detections = merge_segmentations_with_tips(seg_boxes, tip_boxes)
+    detections, _ = merge_segmentations_with_tips(seg_boxes, tip_boxes)
 
     tip_items = extract_boxes_with_conf(tip_results)  # только боксы
 
