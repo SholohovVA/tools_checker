@@ -44,8 +44,8 @@ python app/models/build_trt.py \
 ## 3) Развернуть сервис на URL
 
 ```bash
-docker compose -f compose.yml build
-docker compose -f compose.yml up -d
+docker compose -f compose_host.yml build
+docker compose -f compose_host.yml up -d
 ```
 
 
