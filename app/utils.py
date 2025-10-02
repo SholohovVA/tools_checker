@@ -6,6 +6,7 @@ from typing import List, Tuple
 import cv2
 import numpy as np
 from PIL import Image
+import os
 
 from app.model import seg_model, tip_model
 
@@ -74,8 +75,6 @@ def detect_objects(image: Image.Image):
 
     # Визуализация
     rendered_image = visualize_final_boxes(img, boxes, tip_items)
-    # Визуализация
-    # rendered_image = visualize_debug_with_polygons_and_tip_boxes(img, seg_items, tip_items)
 
     segmentation_data = defaultdict(dict)
     for cls_id, conf, box, polygon in seg_items:
@@ -96,6 +95,8 @@ def save_image(image, filename: str, is_original=False) -> str:
     """
     if is_original:
         path = STATIC_DIR / 'original' / filename
+        if not os.path.exists(STATIC_DIR / 'original'):
+            os.mkdir(STATIC_DIR / 'original')
         # Если image это numpy array, конвертируем в PIL Image
         if isinstance(image, np.ndarray):
             # Если image в формате BGR (от cv2), конвертируем в RGB
@@ -110,6 +111,8 @@ def save_image(image, filename: str, is_original=False) -> str:
         return f"/static/original/{filename}"
     else:
         path = STATIC_DIR / 'results' / filename
+        if not os.path.exists(STATIC_DIR / 'results'):
+            os.mkdir(STATIC_DIR / 'results')
         # Для обработанных изображений
         if isinstance(image, np.ndarray):
             if len(image.shape) == 3 and image.shape[2] == 3:
@@ -142,10 +145,15 @@ def bbox_to_yolo_format(xyxy, img_width, img_height):
 def detect_objects_with_meta(image: Image.Image):
     img = np.array(image)
     h, w = img.shape[:2]
-    img_bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
-    seg_results = seg_model(image)[0]
-    tip_results = tip_model(image)[0]
+    seg_results = seg_model.predict(image)[0]
+    tip_results = tip_model.predict(image, conf=0.5)[0]
+
+    # fix classes of boxes
+    tip_results = tip_results.to('cpu')
+    for i, cls in enumerate(tip_results.boxes.cls):
+        tip_results.boxes.cls[i] = TIPS_TO_SEG_CLASSES[int(cls)]
 
     seg_boxes = extract_boxes(seg_results)
     tip_boxes = extract_boxes(tip_results)
@@ -153,7 +161,12 @@ def detect_objects_with_meta(image: Image.Image):
     # Запуск логики постобработки
     detections = merge_segmentations_with_tips(seg_boxes, tip_boxes)
 
-    return detections, w, h
+    tip_items = extract_boxes_with_conf(tip_results)  # только боксы
+
+    # Визуализация
+    rendered_image = visualize_final_boxes(img, detections, tip_items)
+
+    return detections, rendered_image, w, h
 
 
 def extract_boxes(results):

@@ -169,7 +169,17 @@ async def batch_detect(files: list[UploadFile] = File(...)):
         try:
             contents = await file.read()
             image = Image.open(io.BytesIO(contents)).convert("RGB")
-            detections, img_w, img_h = detect_objects_with_meta(image)
+            detections, rendered_image, img_w, img_h = detect_objects_with_meta(image)
+
+            # Сохраняем оригинальное изображение
+            original_filename = f"orig_{file.filename}"
+            print(f"Saving original image: {original_filename}")
+            original_url = save_image(image, original_filename, is_original=True)
+
+            # Сохраняем полученное изображение с полигонами
+            filename = f"det_{file.filename}"
+            print(f"Saving processed image: {filename}")
+            img_url = save_image(rendered_image, filename, is_original=False)
 
             for det in detections:
                 all_class_ids.add(det[-1])
